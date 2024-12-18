@@ -46,10 +46,7 @@ export class GenieAladdinConnectGarageDoorAccessory {
       .getService(this.platform.Service.AccessoryInformation)!
       .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Genie')
       .setCharacteristic(this.platform.Characteristic.Model, 'Aladdin Connect')
-      .setCharacteristic(
-        this.platform.Characteristic.SerialNumber,
-        `${this.door.serialNumber}:${this.door.index}`,
-      );
+      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.door.id);
 
     const service = (this.accessory.getService(this.platform.Service.GarageDoorOpener) ||
       this.accessory.addService(
