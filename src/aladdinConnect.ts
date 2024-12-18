@@ -1,5 +1,7 @@
 import { Logger } from 'homebridge';
-import cacheManager, { Cache } from 'cache-manager';
+import { Cache, createCache } from 'cache-manager';
+import { Keyv } from 'keyv';
+import { KeyvCacheableMemory } from 'cacheable';
 
 import * as https from 'https';
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
@@ -148,11 +150,12 @@ export class AladdinConnect {
     public readonly log: Logger,
     private readonly config: AladdinConnectConfig,
   ) {
-    this.cache = cacheManager.caching({
-      ttl: 0, // No default ttl
-      max: 0, // Infinite capacity
-      store: 'memory',
+    const store = new KeyvCacheableMemory({
+      ttl: undefined, // No default ttl
+      lruSize: 0, // Infinite capacity
     });
+    const keyv = new Keyv({ store });
+    this.cache = createCache({ stores: [keyv] });
     this.session = axios.create({
       httpsAgent: new https.Agent({ keepAlive: true }),
       timeout: AladdinConnect.API_TIMEOUT,
@@ -259,16 +262,14 @@ export class AladdinConnect {
               }),
             );
           },
-          {
-            ttl: (doors: AladdinDoor[]) =>
-              doors.some((door) =>
-                [AladdinDoorStatus.CLOSING, AladdinDoorStatus.OPENING].includes(
-                  door?.status ?? AladdinDoorStatus.UNKNOWN,
-                ),
-              )
-                ? this.doorStatusTransitioningCacheTtl
-                : this.doorStatusStationaryCacheTtl,
-          },
+          (doors: AladdinDoor[]) =>
+            doors.some((door) =>
+              [AladdinDoorStatus.CLOSING, AladdinDoorStatus.OPENING].includes(
+                door?.status ?? AladdinDoorStatus.UNKNOWN,
+              ),
+            )
+              ? this.doorStatusTransitioningCacheTtl
+              : this.doorStatusStationaryCacheTtl,
         ),
     );
   }
@@ -348,7 +349,7 @@ export class AladdinConnect {
 
           return response.data.AuthenticationResult;
         },
-        { ttl: ({ ExpiresIn: expiresIn }) => expiresIn - 30 },
+        ({ ExpiresIn: expiresIn }) => expiresIn - 30,
       )
     ).AccessToken;
   }
