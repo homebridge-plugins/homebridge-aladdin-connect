@@ -65,25 +65,50 @@
         "title": "Show doors that have been shared with me",
         "type": "boolean",
         "default": false
+      },
+      "ignoreDevices": {
+        "title": "Ignore Doors By ID",
+        "description": "Ignore doors by their device ID obtained from the logs during startup.",
+        "type": "array",
+        "default": [],
+        "required": false,
+        "items": {
+          "title": "Device ID",
+          "type": "string"
+        }
       }
     }
   },
-  "form": [
+  "layout": [
     "name",
     "username",
     "password",
     {
-      "type": "fieldset",
-      "expandable": true,
+      "type": "section",
       "title": "Advanced Settings",
-      "description": "",
+      "expandable": true,
+      "expanded": false,
       "items": [
         "batteryLowLevel",
         "doorStatusStationaryCacheTtl",
         "doorStatusTransitioningCacheTtl",
         "doorStatusPollInterval",
         "logApiResponses",
-        "showShared"
+        "showShared",
+        {
+          "key": "ignoreDevices",
+          "type": "array",
+          "name": "Device ID",
+          "orderable": false,
+          "buttonText": "Add Device ID",
+          "items": {
+            "key": "ignoreDevices[]",
+            "type": "string",
+            "pattern": "^[A-F0-9]{12}_[1-9]+$",
+            "title": "Device ID",
+            "placeholder": "eg. F0AD4E1BC74D_1"
+          }
+        }
       ]
     }
   ]

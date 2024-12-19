@@ -50,6 +50,10 @@ export class GenieAladdinConnectHomebridgePlatform implements DynamicPlatformPlu
     const discoveredUUIDs: Set<string> = new Set();
 
     for (const door of doors) {
+      if (Array.isArray(this.config.ignoreDevices) && this.config.ignoreDevices.includes(door.id)) {
+        this.log.info('Skipping ignored accessory: %s (id: %s)', door.name, door.id);
+        continue;
+      }
       if (door.ownership === 'owned' || this.config.showShared === true) {
         const uuid = this.api.hap.uuid.generate(`${door.deviceId}:${door.index}`);
         discoveredUUIDs.add(uuid);
@@ -64,10 +68,14 @@ export class GenieAladdinConnectHomebridgePlatform implements DynamicPlatformPlu
         };
 
         if (existingAccessory) {
-          this.log.info('Restoring existing accessory from cache:', accessory.displayName);
+          this.log.info(
+            'Restoring existing accessory from cache: %s (id: %s)',
+            accessory.displayName,
+            door.id,
+          );
           this.api.updatePlatformAccessories([accessory]);
         } else {
-          this.log.info('Adding new accessory:', door.name);
+          this.log.info('Adding new accessory: %s (id: %s)', door.name, door.id);
           this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
         }
         new GenieAladdinConnectGarageDoorAccessory(this, accessory);
