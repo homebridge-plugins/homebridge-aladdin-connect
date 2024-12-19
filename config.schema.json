@@ -20,10 +20,7 @@
       "password": {
         "title": "Password",
         "type": "string",
-        "required": true,
-        "options": {
-          "hidden": true
-        }
+        "required": true
       },
       "batteryLowLevel": {
         "title": "Low battery warning threshold level (in percent)",
@@ -37,24 +34,21 @@
         "type": "integer",
         "default": 15,
         "minimum": 5,
-        "maximum": 60,
-        "required": true
+        "maximum": 60
       },
       "doorStatusTransitioningCacheTtl": {
         "title": "Transitioning door status cache TTL (in seconds). Used when the door is in a transitioning state.",
         "type": "integer",
         "default": 5,
         "minimum": 1,
-        "maximum": 30,
-        "required": true
+        "maximum": 30
       },
       "doorStatusPollInterval": {
         "title": "Door Status Poll Interval (in milliseconds)",
         "type": "integer",
         "default": 15000,
         "minimum": 5000,
-        "maximum": 60000,
-        "required": true
+        "maximum": 60000
       },
       "logApiResponses": {
         "title": "Log Genie API responses in debug mode",
@@ -82,7 +76,7 @@
   "layout": [
     "name",
     "username",
-    "password",
+    { "key": "password", "type": "password" },
     {
       "type": "section",
       "title": "Advanced Settings",
