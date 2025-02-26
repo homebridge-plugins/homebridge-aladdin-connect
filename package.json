@@ -1,19 +1,22 @@
 {
-  "displayName": "Homebridge Genie Aladdin Connect Plugin",
-  "name": "homebridge-genie-aladdin-connect",
+  "displayName": "Aladdin Connect",
+  "name": "@homebridge-plugins/homebridge-aladdin-connect",
   "version": "4.2.1",
-  "description": "Genie Aladdin Connect plugin for Homebridge.",
+  "description": "Aladdin Connect plugin for Homebridge.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git://github.com/derek-miller/homebridge-genie-aladdin-connect.git"
+    "url": "git://github.com/homebridge-plugins/homebridge-aladdin-connect.git"
   },
   "bugs": {
-    "url": "https://github.com/derek-miller/homebridge-genie-aladdin-connect/issues"
+    "url": "https://github.com/homebridge-plugins/homebridge-aladdin-connect/issues"
   },
   "engines": {
-    "node": "^18 || ^20|| ^22",
-    "homebridge": "^1.6.0 || ^2.0.0-beta.0"
+    "node": "^18 || ^20 || ^22",
+    "homebridge": "^1.9.0 || ^2.0.0-beta.27"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "main": "dist/index.js",
   "scripts": {
@@ -26,6 +29,7 @@
     "fmt": "npm run lint-fix",
     "watch": "npm run build && npm link && nodemon",
     "build": "rm -rf ./dist && tsc",
+    "test": "npm install",
     "prepublishOnly": "npm run lint && npm run build"
   },
   "keywords": [
