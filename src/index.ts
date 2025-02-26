@@ -1,11 +1,11 @@
-import { API } from 'homebridge';
+import type { API } from 'homebridge'
 
-import { PLATFORM_NAME } from './settings';
-import { GenieAladdinConnectHomebridgePlatform } from './platform';
+import { GenieAladdinConnectHomebridgePlatform } from './platform.js'
+import { PLATFORM_NAME } from './settings.js'
 
 /**
  * This method registers the platform with Homebridge
  */
-export = (api: API) => {
-  api.registerPlatform(PLATFORM_NAME, GenieAladdinConnectHomebridgePlatform);
-};
+export default (api: API): void => {
+  api.registerPlatform(PLATFORM_NAME, GenieAladdinConnectHomebridgePlatform)
+}

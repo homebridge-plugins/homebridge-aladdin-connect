@@ -1,163 +1,160 @@
-import { Characteristic, CharacteristicValue, HAP, Logger, PlatformAccessory } from 'homebridge';
+import type { Characteristic, CharacteristicValue, HAP, Logger, PlatformAccessory } from 'homebridge'
 
-import { GenieAladdinConnectHomebridgePlatform } from './platform';
-import {
-  AladdinConnect,
-  AladdinDesiredDoorStatus,
-  AladdinDoor,
-  AladdinDoorStatus,
-} from './aladdinConnect';
-import { DEFAULT_STATUS_LOW_BATTERY_PERCENT } from './settings';
+import type { AladdinConnect, AladdinDoor } from './aladdinConnect.js'
+import type { GenieAladdinConnectHomebridgePlatform } from './platform.js'
+
+import { AladdinDesiredDoorStatus, AladdinDoorStatus } from './aladdinConnect.js'
+import { DEFAULT_STATUS_LOW_BATTERY_PERCENT } from './settings.js'
 
 export interface GenieAladdinConnectPlatformAccessoryContext {
-  door: AladdinDoor;
+  door: AladdinDoor
 }
 
 export class GenieAladdinConnectGarageDoorAccessory {
-  private readonly log: Logger;
-  private readonly hap: HAP;
-  private readonly aladdinConnect: AladdinConnect;
-  private readonly context: GenieAladdinConnectPlatformAccessoryContext;
-  private readonly door: AladdinDoor;
-  private readonly id: string;
-  private readonly targetStateCharacteristic: Characteristic;
-  private readonly currentStateCharacteristic: Characteristic;
-  private readonly obstructionDetectedCharacteristic: Characteristic;
-  private readonly batteryLevelCharacteristic: Characteristic | null = null;
-  private readonly statusLowBatteryCharacteristic: Characteristic | null = null;
+  private readonly log: Logger
+  private readonly hap: HAP
+  private readonly aladdinConnect: AladdinConnect
+  private readonly context: GenieAladdinConnectPlatformAccessoryContext
+  private readonly door: AladdinDoor
+  private readonly id: string
+  private readonly targetStateCharacteristic: Characteristic
+  private readonly currentStateCharacteristic: Characteristic
+  private readonly obstructionDetectedCharacteristic: Characteristic
+  private readonly batteryLevelCharacteristic: Characteristic | null = null
+  private readonly statusLowBatteryCharacteristic: Characteristic | null = null
 
-  private _currentStatus = AladdinDoorStatus.UNKNOWN;
-  private _desiredStatus = AladdinDesiredDoorStatus.NONE;
-  private _obstructionDetected = false;
-  private _batteryLevel = 100;
-  private _statusLowBattery = false;
+  private _currentStatus = AladdinDoorStatus.UNKNOWN
+  private _desiredStatus = AladdinDesiredDoorStatus.NONE
+  private _obstructionDetected = false
+  private _batteryLevel = 100
+  private _statusLowBattery = false
 
   constructor(
     private readonly platform: GenieAladdinConnectHomebridgePlatform,
     private readonly accessory: PlatformAccessory,
   ) {
-    this.log = this.platform.log;
-    this.hap = this.platform.api.hap;
-    this.aladdinConnect = this.platform.aladdinConnect;
-    this.context = <GenieAladdinConnectPlatformAccessoryContext>this.accessory.context;
-    this.door = this.context.door;
-    this.id = `${this.door.deviceId}:${this.door.index}`;
+    this.log = this.platform.log
+    this.hap = this.platform.api.hap
+    this.aladdinConnect = this.platform.aladdinConnect
+    this.context = <GenieAladdinConnectPlatformAccessoryContext> this.accessory.context
+    this.door = this.context.door
+    this.id = `${this.door.deviceId}:${this.door.index}`
     this.accessory
       .getService(this.platform.Service.AccessoryInformation)!
       .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Genie')
       .setCharacteristic(this.platform.Characteristic.Model, 'Aladdin Connect')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.door.id);
+      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.door.id)
 
-    const service = (this.accessory.getService(this.platform.Service.GarageDoorOpener) ||
-      this.accessory.addService(
+    const service = (this.accessory.getService(this.platform.Service.GarageDoorOpener)
+      || this.accessory.addService(
         this.platform.Service.GarageDoorOpener,
         this.door.name,
         this.id,
-      ))!.setCharacteristic(this.platform.Characteristic.Name, this.door.name);
+      ))!.setCharacteristic(this.platform.Characteristic.Name, this.door.name)
 
     this.targetStateCharacteristic = service
       .getCharacteristic(this.platform.Characteristic.TargetDoorState)
       .onSet(this.setTargetDoorState.bind(this))
-      .onGet(this.getTargetDoorState.bind(this));
+      .onGet(this.getTargetDoorState.bind(this))
     this.currentStateCharacteristic = service
       .getCharacteristic(this.platform.Characteristic.CurrentDoorState)
-      .onGet(this.getCurrentDoorState.bind(this));
+      .onGet(this.getCurrentDoorState.bind(this))
     this.obstructionDetectedCharacteristic = service
       .getCharacteristic(this.platform.Characteristic.ObstructionDetected)
-      .onGet(this.getObstructionDetected.bind(this));
+      .onGet(this.getObstructionDetected.bind(this))
     if (this.door.hasBatteryLevel) {
       this.batteryLevelCharacteristic = service
         .getCharacteristic(this.platform.Characteristic.BatteryLevel)
-        .onGet(this.getBatteryLevel.bind(this));
+        .onGet(this.getBatteryLevel.bind(this))
       this.statusLowBatteryCharacteristic = service
         .getCharacteristic(this.platform.Characteristic.StatusLowBattery)
-        .onGet(this.getStatusLowBattery.bind(this));
+        .onGet(this.getStatusLowBattery.bind(this))
     }
 
     this.aladdinConnect.subscribe(this.door, (info: AladdinDoor) => {
-      this.currentStatus = info.status;
-      this.obstructionDetected =
+      this.currentStatus = info.status
+      this.obstructionDetected
         // A fault happens when a door fails to open/close twice in a row and then must be operated
         // manually.
-        info.fault ||
+        = info.fault
         // If the door does not go into its desired state after some timeout it goes into one of
         // these states. The first time it is recoverable.
-        [AladdinDoorStatus.TIMEOUT_CLOSING, AladdinDoorStatus.TIMEOUT_OPENING].includes(
-          info.status,
-        );
+          || [AladdinDoorStatus.TIMEOUT_CLOSING, AladdinDoorStatus.TIMEOUT_OPENING].includes(
+            info.status,
+          )
       if (this.door.hasBatteryLevel && info.batteryPercent !== null) {
-        this.batteryLevel = info.batteryPercent;
+        this.batteryLevel = info.batteryPercent
       }
-      this.desiredStatus = this.convertStatusToDesiredStatus(this.currentStatus);
-    });
+      this.desiredStatus = this.convertStatusToDesiredStatus(this.currentStatus)
+    })
   }
 
   private get currentStatus(): AladdinDoorStatus {
-    return this._currentStatus;
+    return this._currentStatus
   }
 
   private set currentStatus(value: AladdinDoorStatus) {
     if (this._currentStatus === value) {
-      return;
+      return
     }
     this.log.debug(
       '[%s] Update Characteristic CurrentDoorState: %s -> %s',
       this.door.name,
       AladdinDoorStatus[this._currentStatus],
       AladdinDoorStatus[value],
-    );
-    this._currentStatus = value;
+    )
+    this._currentStatus = value
     this.currentStateCharacteristic.updateValue(
       this.convertStatusToCurrentStateValue(this._currentStatus),
-    );
+    )
   }
 
   private get desiredStatus(): AladdinDesiredDoorStatus {
-    return this._desiredStatus;
+    return this._desiredStatus
   }
 
   private set desiredStatus(value: AladdinDesiredDoorStatus) {
     if (this._desiredStatus === value) {
-      return;
+      return
     }
     this.log.debug(
       '[%s] Update Characteristic TargetDoorState: %s -> %s',
       this.door.name,
       AladdinDesiredDoorStatus[this._desiredStatus],
       AladdinDesiredDoorStatus[value],
-    );
-    this._desiredStatus = value;
+    )
+    this._desiredStatus = value
     this.targetStateCharacteristic.updateValue(
       this.convertDesiredStatusToTargetStateValue(this._desiredStatus),
-    );
+    )
   }
 
   private get obstructionDetected(): boolean {
-    return this._obstructionDetected;
+    return this._obstructionDetected
   }
 
   private set obstructionDetected(value: boolean) {
     if (this._obstructionDetected === value) {
-      return;
+      return
     }
     this.log.debug(
       '[%s] Update Characteristic ObstructionDetected: %s -> %s',
       this.door.name,
       this._obstructionDetected ? 'YES' : 'NO',
       value ? 'YES' : 'NO',
-    );
-    this._obstructionDetected = value;
-    this.obstructionDetectedCharacteristic.updateValue(this._obstructionDetected);
+    )
+    this._obstructionDetected = value
+    this.obstructionDetectedCharacteristic.updateValue(this._obstructionDetected)
   }
 
   private get batteryLevel(): number {
-    return this._batteryLevel;
+    return this._batteryLevel
   }
 
   private set batteryLevel(value: number) {
-    const batteryLevel = Math.min(100, Math.max(0, value));
-    const statusLowBattery =
-      batteryLevel <= (this.platform.config?.batteryLowLevel ?? DEFAULT_STATUS_LOW_BATTERY_PERCENT);
+    const batteryLevel = Math.min(100, Math.max(0, value))
+    const statusLowBattery
+      = batteryLevel <= (this.platform.config?.batteryLowLevel ?? DEFAULT_STATUS_LOW_BATTERY_PERCENT)
 
     if (this._batteryLevel !== batteryLevel && this.batteryLevelCharacteristic !== null) {
       this.log.debug(
@@ -165,46 +162,46 @@ export class GenieAladdinConnectGarageDoorAccessory {
         this.door.name,
         this._batteryLevel,
         batteryLevel,
-      );
-      this.batteryLevelCharacteristic.updateValue(batteryLevel);
+      )
+      this.batteryLevelCharacteristic.updateValue(batteryLevel)
     }
-    this._batteryLevel = batteryLevel;
+    this._batteryLevel = batteryLevel
 
     if (
-      this._statusLowBattery !== statusLowBattery &&
-      this.statusLowBatteryCharacteristic !== null
+      this._statusLowBattery !== statusLowBattery
+      && this.statusLowBatteryCharacteristic !== null
     ) {
       this.log.debug(
         '[%s] Update Characteristic StatusLowBattery: %s -> %s',
         this.door.name,
         this._statusLowBattery ? 'YES' : 'NO',
         statusLowBattery ? 'YES' : 'NO',
-      );
-      this.statusLowBatteryCharacteristic.updateValue(this._statusLowBattery);
+      )
+      this.statusLowBatteryCharacteristic.updateValue(this._statusLowBattery)
     }
-    this._statusLowBattery = statusLowBattery;
+    this._statusLowBattery = statusLowBattery
   }
 
   private async setTargetDoorState(value: CharacteristicValue): Promise<void> {
-    const desiredStatus = this.convertTargetStateValueToDesiredStatus(value);
+    const desiredStatus = this.convertTargetStateValueToDesiredStatus(value)
     if (desiredStatus === this.desiredStatus) {
       this.log.debug(
         '[%s] Set Characteristic TargetDoorState -> %s, already set TargetDoorState -> %s. Cancelling.',
         this.door.name,
         AladdinDesiredDoorStatus[desiredStatus],
         AladdinDesiredDoorStatus[this.desiredStatus],
-      );
-      return;
+      )
+      return
     }
     this.log.debug(
       '[%s] Set Characteristic TargetDoorState ->',
       this.door.name,
       AladdinDesiredDoorStatus[desiredStatus],
-    );
+    )
     try {
-      await this.aladdinConnect.setDoorStatus(this.door, desiredStatus);
+      await this.aladdinConnect.setDoorStatus(this.door, desiredStatus)
     } catch (error: unknown) {
-      throw new this.hap.HapStatusError(this.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+      throw new this.hap.HapStatusError(this.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE)
     }
   }
 
@@ -213,8 +210,8 @@ export class GenieAladdinConnectGarageDoorAccessory {
       '[%s] Get Characteristic TargetDoorState ->',
       this.door.name,
       AladdinDesiredDoorStatus[this.desiredStatus],
-    );
-    return this.convertDesiredStatusToTargetStateValue(this.desiredStatus);
+    )
+    return this.convertDesiredStatusToTargetStateValue(this.desiredStatus)
   }
 
   private getCurrentDoorState(): CharacteristicValue {
@@ -222,8 +219,8 @@ export class GenieAladdinConnectGarageDoorAccessory {
       '[%s] Get Characteristic CurrentDoorState ->',
       this.door.name,
       AladdinDoorStatus[this.currentStatus],
-    );
-    return this.convertStatusToCurrentStateValue(this.currentStatus);
+    )
+    return this.convertStatusToCurrentStateValue(this.currentStatus)
   }
 
   private getObstructionDetected(): CharacteristicValue {
@@ -231,13 +228,13 @@ export class GenieAladdinConnectGarageDoorAccessory {
       '[%s] Get Characteristic ObstructionDetected ->',
       this.door.name,
       this.obstructionDetected ? 'YES' : 'NO',
-    );
-    return this.obstructionDetected;
+    )
+    return this.obstructionDetected
   }
 
   private getBatteryLevel(): CharacteristicValue {
-    this.log.debug('[%s] Get Characteristic BatteryLevel ->', this.door.name, this.batteryLevel);
-    return this.batteryLevel;
+    this.log.debug('[%s] Get Characteristic BatteryLevel ->', this.door.name, this.batteryLevel)
+    return this.batteryLevel
   }
 
   private getStatusLowBattery(): CharacteristicValue {
@@ -245,8 +242,8 @@ export class GenieAladdinConnectGarageDoorAccessory {
       '[%s] Get Characteristic StatusLowBattery ->',
       this.door.name,
       this._statusLowBattery ? 'YES' : 'NO',
-    );
-    return this._statusLowBattery;
+    )
+    return this._statusLowBattery
   }
 
   private convertTargetStateValueToDesiredStatus(
@@ -254,37 +251,37 @@ export class GenieAladdinConnectGarageDoorAccessory {
   ): AladdinDesiredDoorStatus {
     switch (value) {
       case this.platform.Characteristic.TargetDoorState.OPEN:
-        return AladdinDesiredDoorStatus.OPEN;
+        return AladdinDesiredDoorStatus.OPEN
       case this.platform.Characteristic.TargetDoorState.CLOSED:
-        return AladdinDesiredDoorStatus.CLOSED;
+        return AladdinDesiredDoorStatus.CLOSED
       default:
         this.log.debug(
           '[%s] Unknown TargetDoorState Characteristic value -> %d',
           this.door.name,
           value,
-        );
-        throw new this.hap.HapStatusError(this.hap.HAPStatus.INVALID_VALUE_IN_REQUEST);
+        )
+        throw new this.hap.HapStatusError(this.hap.HAPStatus.INVALID_VALUE_IN_REQUEST)
     }
   }
 
   private convertStatusToCurrentStateValue(status: AladdinDoorStatus): CharacteristicValue {
     switch (status) {
       case AladdinDoorStatus.OPEN:
-        return this.platform.Characteristic.CurrentDoorState.OPEN;
+        return this.platform.Characteristic.CurrentDoorState.OPEN
       case AladdinDoorStatus.OPENING:
-        return this.platform.Characteristic.CurrentDoorState.OPENING;
+        return this.platform.Characteristic.CurrentDoorState.OPENING
       case AladdinDoorStatus.CLOSED:
-        return this.platform.Characteristic.CurrentDoorState.CLOSED;
+        return this.platform.Characteristic.CurrentDoorState.CLOSED
       case AladdinDoorStatus.CLOSING:
-        return this.platform.Characteristic.CurrentDoorState.CLOSING;
+        return this.platform.Characteristic.CurrentDoorState.CLOSING
       case AladdinDoorStatus.TIMEOUT_OPENING:
       case AladdinDoorStatus.TIMEOUT_CLOSING:
       case AladdinDoorStatus.UNKNOWN:
       case AladdinDoorStatus.NOT_CONFIGURED:
-        return this.platform.Characteristic.CurrentDoorState.STOPPED;
+        return this.platform.Characteristic.CurrentDoorState.STOPPED
       default:
-        this.log.debug('[%s] Unknown Aladdin door status -> %d', this.door.name, status);
-        throw new this.hap.HapStatusError(this.hap.HAPStatus.INVALID_VALUE_IN_REQUEST);
+        this.log.debug('[%s] Unknown Aladdin door status -> %d', this.door.name, status)
+        throw new this.hap.HapStatusError(this.hap.HAPStatus.INVALID_VALUE_IN_REQUEST)
     }
   }
 
@@ -293,12 +290,12 @@ export class GenieAladdinConnectGarageDoorAccessory {
   ): CharacteristicValue {
     switch (status) {
       case AladdinDesiredDoorStatus.OPEN:
-        return this.platform.Characteristic.TargetDoorState.OPEN;
+        return this.platform.Characteristic.TargetDoorState.OPEN
       case AladdinDesiredDoorStatus.CLOSED:
-        return this.platform.Characteristic.TargetDoorState.CLOSED;
+        return this.platform.Characteristic.TargetDoorState.CLOSED
       default:
-        this.log.debug('[%s] Unknown Aladdin door desired status -> %d', this.door.name, status);
-        throw new this.hap.HapStatusError(this.hap.HAPStatus.INVALID_VALUE_IN_REQUEST);
+        this.log.debug('[%s] Unknown Aladdin door desired status -> %d', this.door.name, status)
+        throw new this.hap.HapStatusError(this.hap.HAPStatus.INVALID_VALUE_IN_REQUEST)
     }
   }
 
@@ -307,17 +304,17 @@ export class GenieAladdinConnectGarageDoorAccessory {
       case AladdinDoorStatus.OPEN:
       case AladdinDoorStatus.OPENING:
       case AladdinDoorStatus.TIMEOUT_OPENING:
-        return AladdinDesiredDoorStatus.OPEN;
+        return AladdinDesiredDoorStatus.OPEN
       case AladdinDoorStatus.CLOSED:
       case AladdinDoorStatus.CLOSING:
       case AladdinDoorStatus.TIMEOUT_CLOSING:
-        return AladdinDesiredDoorStatus.CLOSED;
+        return AladdinDesiredDoorStatus.CLOSED
       case AladdinDoorStatus.UNKNOWN:
       case AladdinDoorStatus.NOT_CONFIGURED:
-        return AladdinDesiredDoorStatus.NONE;
+        return AladdinDesiredDoorStatus.NONE
       default:
-        this.log.debug('[%s] Unknown Aladdin door status -> %d', this.door.name, status);
-        throw new this.hap.HapStatusError(this.hap.HAPStatus.INVALID_VALUE_IN_REQUEST);
+        this.log.debug('[%s] Unknown Aladdin door status -> %d', this.door.name, status)
+        throw new this.hap.HapStatusError(this.hap.HAPStatus.INVALID_VALUE_IN_REQUEST)
     }
   }
 }
