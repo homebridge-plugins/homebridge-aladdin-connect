@@ -100,7 +100,7 @@ export class GenieAladdinConnectGarageDoorAccessory {
     if (this._currentStatus === value) {
       return;
     }
-    this.log.debug(
+    this.log.info(
       '[%s] Update Characteristic CurrentDoorState: %s -> %s',
       this.door.name,
       AladdinDoorStatus[this._currentStatus],
@@ -196,7 +196,7 @@ export class GenieAladdinConnectGarageDoorAccessory {
       );
       return;
     }
-    this.log.debug(
+    this.log.info(
       '[%s] Set Characteristic TargetDoorState ->',
       this.door.name,
       AladdinDesiredDoorStatus[desiredStatus],
