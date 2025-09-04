@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.3.1](https://github.com/homebridge-plugins/homebridge-aladdin-connect/releases/tag/v4.3.1) (2025-01-24)
+
+### What's Changed
+
+- Fix webhook logging wrong plugin - correct references from roomba to aladdin-connect
+
+**Full Changelog**: https://github.com/homebridge-plugins/homebridge-aladdin-connect/compare/v4.3.0...v4.3.1
+
 ## [4.3.0](https://github.com/homebridge-plugins/homebridge-aladdin-connect/releases/tag/v4.3.0) (2025-09-04)
 
 ### What's Changed
