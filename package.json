@@ -1,7 +1,7 @@
 {
   "displayName": "Aladdin Connect",
   "name": "@homebridge-plugins/homebridge-aladdin-connect",
-  "version": "4.2.1",
+  "version": "4.2.2",
   "description": "Aladdin Connect plugin for Homebridge.",
   "license": "Apache-2.0",
   "repository": {
@@ -12,14 +12,15 @@
     "url": "https://github.com/homebridge-plugins/homebridge-aladdin-connect/issues"
   },
   "engines": {
-    "node": "^18 || ^20 || ^22",
-    "homebridge": "^1.9.0 || ^2.0.0-beta.27"
+    "node": "^20 || ^22 || ^24",
+    "homebridge": "^1.11.0 || ^2.0.0-beta.27"
   },
   "publishConfig": {
     "access": "public"
   },
   "main": "dist/index.js",
   "scripts": {
+    "check": "npm install && npm outdated",
     "eslint": "eslint src/**.ts --max-warnings=0",
     "eslint-fix": "eslint src/**.ts --max-warnings=0 --fix",
     "prettier": "prettier --check src *.{yaml,json,md}",
@@ -40,28 +41,28 @@
   ],
   "dependencies": {
     "async-lock": "^1.4.1",
-    "axios": "^1.7.9",
+    "axios": "^1.11.0",
     "axios-retry": "^4.5.0",
     "cache-manager": "^6.3.1",
-    "cacheable": "^1.8.6",
+    "cacheable": "^1.10.4",
     "form-data": "^4.0.1",
-    "keyv": "^5.2.2",
+    "keyv": "^5.5.0",
     "pubsub-js": "^1.9.5",
-    "qs": "^6.13.1"
+    "qs": "^6.14.0"
   },
   "devDependencies": {
     "@types/async-lock": "^1.4.2",
     "@types/cache-manager": "^4.0.6",
-    "@types/node": "^22.10.2",
+    "@types/node": "^24.3.1",
     "@types/pubsub-js": "^1.8.6",
     "@typescript-eslint/eslint-plugin": "<8",
     "@typescript-eslint/parser": "<8",
     "eslint": "<9",
-    "homebridge": "^2.0.0-beta.23",
-    "homebridge-config-ui-x": "^4.65.2",
-    "nodemon": "^3.1.9",
-    "prettier": "^3.4.2",
+    "homebridge": "^1.11.0",
+    "homebridge-config-ui-x": "^5.5.0",
+    "nodemon": "^3.1.10",
+    "prettier": "^3.6.2",
     "ts-node": "^10.9.2",
-    "typescript": "<5.6.0"
+    "typescript": "^5.9.2"
   }
 }
