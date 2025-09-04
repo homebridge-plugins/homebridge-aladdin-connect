@@ -40,14 +40,6 @@ Run Homebridge manually for testing:
 - No formal test suite exists - the `npm run test` command only runs `npm install` for dependency validation.
 - **CRITICAL DEPENDENCY NOTE**: Use the existing package-lock.json. DO NOT run `npm install` with updated dependencies as it may break TypeScript compilation due to Homebridge version conflicts.
 
-## Build and Timing Expectations
-
-- `npm install`: ~45 seconds. NEVER CANCEL. Set timeout to 60+ seconds.
-- `npm run build`: ~3 seconds. NEVER CANCEL. Set timeout to 30+ seconds.
-- `npm run lint`: ~3 seconds. NEVER CANCEL. Set timeout to 30+ seconds.
-- `npm run watch`: Continuous development mode. NEVER CANCEL.
-- All commands complete quickly - no long-running builds or tests.
-
 ## Common Tasks
 
 The following are outputs from frequently run commands. Reference them instead of viewing, searching, or running bash commands to save time.
