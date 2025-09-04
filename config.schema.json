@@ -55,6 +55,11 @@
         "type": "boolean",
         "default": false
       },
+      "logDoorStateChanges": {
+        "title": "Log door state changes (open, close, opening, closing)",
+        "type": "boolean",
+        "default": true
+      },
       "showShared": {
         "title": "Show doors that have been shared with me",
         "type": "boolean",
@@ -88,6 +93,7 @@
         "doorStatusTransitioningCacheTtl",
         "doorStatusPollInterval",
         "logApiResponses",
+        "logDoorStateChanges",
         "showShared",
         {
           "key": "ignoreDevices",
