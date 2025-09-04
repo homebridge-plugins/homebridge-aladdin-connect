@@ -4,6 +4,7 @@
 
 ### What's Changed
 
+- Add configurable door state change logging option [#69](https://github.com/derek-miller/homebridge-genie-aladdin-connect/pull/69)
 - Update dependencies to latest versions
 
 **Full Changelog**: https://github.com/homebridge-plugins/homebridge-aladdin-connect/compare/v4.2.1...v4.2.2
