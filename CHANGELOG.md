@@ -16,7 +16,7 @@
 
 **Full Changelog**: https://github.com/homebridge-plugins/homebridge-aladdin-connect/compare/v4.2.1...v4.2.2
 
-## [4.2.1](https://github.com/homebridge-plugins/homebridge-roomba/releases/tag/v2.1.0) (2024-12-19)
+## [4.2.1](https://github.com/homebridge-plugins/homebridge-aladdin-connect/releases/tag/v4.2.1) (2024-12-19)
 
 ### What's Changed
 
