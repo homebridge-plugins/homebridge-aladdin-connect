@@ -29,8 +29,12 @@ export class GenieAladdinConnectHomebridgePlatform implements DynamicPlatformPlu
   ) {
     this.Service = this.api.hap.Service;
     this.Characteristic = this.api.hap.Characteristic;
-    this.aladdinConnect = new AladdinConnect(log, <AladdinConnectConfig>(<unknown>config));
+    this.aladdinConnect = new AladdinConnect(log, this.aladdinConnectConfig);
     this.api.on(APIEvent.DID_FINISH_LAUNCHING, async () => this.discoverDevices());
+  }
+
+  private get aladdinConnectConfig(): AladdinConnectConfig {
+    return this.config as unknown as AladdinConnectConfig;
   }
 
   configureAccessory(accessory: PlatformAccessory) {
@@ -50,11 +54,14 @@ export class GenieAladdinConnectHomebridgePlatform implements DynamicPlatformPlu
     const discoveredUUIDs: Set<string> = new Set();
 
     for (const door of doors) {
-      if (Array.isArray(this.config.ignoreDevices) && this.config.ignoreDevices.includes(door.id)) {
+      if (
+        Array.isArray(this.aladdinConnectConfig.ignoreDevices) &&
+        this.aladdinConnectConfig.ignoreDevices.includes(door.id)
+      ) {
         this.log.info('Skipping ignored accessory: %s (id: %s)', door.name, door.id);
         continue;
       }
-      if (door.ownership === 'owned' || this.config.showShared === true) {
+      if (door.ownership === 'owned' || this.aladdinConnectConfig.showShared === true) {
         const uuid = this.api.hap.uuid.generate(`${door.deviceId}:${door.index}`);
         discoveredUUIDs.add(uuid);
 

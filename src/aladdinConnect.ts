@@ -115,6 +115,7 @@ export interface AladdinConnectConfig {
   doorStatusPollInterval?: number;
   logApiResponses?: boolean;
   showShared?: boolean;
+  ignoreDevices?: string[];
 }
 
 export class AladdinConnect {
