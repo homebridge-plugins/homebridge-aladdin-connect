@@ -114,6 +114,7 @@ export interface AladdinConnectConfig {
   doorStatusTransitioningCacheTtl?: number;
   doorStatusPollInterval?: number;
   logApiResponses?: boolean;
+  logDoorStateChanges?: boolean;
   showShared?: boolean;
 }
 
