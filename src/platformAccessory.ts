@@ -3,6 +3,7 @@ import { Characteristic, CharacteristicValue, HAP, Logger, PlatformAccessory } f
 import { GenieAladdinConnectHomebridgePlatform } from './platform';
 import {
   AladdinConnect,
+  AladdinConnectConfig,
   AladdinDesiredDoorStatus,
   AladdinDoor,
   AladdinDoorStatus,
@@ -100,12 +101,26 @@ export class GenieAladdinConnectGarageDoorAccessory {
     if (this._currentStatus === value) {
       return;
     }
-    this.log.info(
-      '[%s] Update Characteristic CurrentDoorState: %s -> %s',
-      this.door.name,
-      AladdinDoorStatus[this._currentStatus],
-      AladdinDoorStatus[value],
-    );
+
+    const config = this.platform.config as unknown as AladdinConnectConfig;
+    const shouldLogStateChanges = config.logDoorStateChanges ?? true; // Default to true
+
+    if (shouldLogStateChanges) {
+      this.log.info(
+        '[%s] Update Characteristic CurrentDoorState: %s -> %s',
+        this.door.name,
+        AladdinDoorStatus[this._currentStatus],
+        AladdinDoorStatus[value],
+      );
+    } else {
+      this.log.debug(
+        '[%s] Update Characteristic CurrentDoorState: %s -> %s',
+        this.door.name,
+        AladdinDoorStatus[this._currentStatus],
+        AladdinDoorStatus[value],
+      );
+    }
+
     this._currentStatus = value;
     this.currentStateCharacteristic.updateValue(
       this.convertStatusToCurrentStateValue(this._currentStatus),
@@ -196,11 +211,24 @@ export class GenieAladdinConnectGarageDoorAccessory {
       );
       return;
     }
-    this.log.info(
-      '[%s] Set Characteristic TargetDoorState ->',
-      this.door.name,
-      AladdinDesiredDoorStatus[desiredStatus],
-    );
+
+    const config = this.platform.config as unknown as AladdinConnectConfig;
+    const shouldLogStateChanges = config.logDoorStateChanges ?? true; // Default to true
+
+    if (shouldLogStateChanges) {
+      this.log.info(
+        '[%s] Set Characteristic TargetDoorState ->',
+        this.door.name,
+        AladdinDesiredDoorStatus[desiredStatus],
+      );
+    } else {
+      this.log.debug(
+        '[%s] Set Characteristic TargetDoorState ->',
+        this.door.name,
+        AladdinDesiredDoorStatus[desiredStatus],
+      );
+    }
+
     try {
       await this.aladdinConnect.setDoorStatus(this.door, desiredStatus);
     } catch (error: unknown) {
