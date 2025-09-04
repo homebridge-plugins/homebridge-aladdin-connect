@@ -98,7 +98,7 @@ The plugin requires valid Aladdin Connect credentials:
 
 ### Expected Log Output for Successful Plugin Loading
 ```
-[timestamp] Loaded plugin: @homebridge-plugins/homebridge-aladdin-connect@4.2.1
+[timestamp] Loaded plugin: @homebridge-plugins/homebridge-aladdin-connect@X.Y.Z
 [timestamp] Registering platform '@homebridge-plugins/homebridge-aladdin-connect.GenieAladdinConnect'
 [timestamp] [Test Garage Door] Initializing GenieAladdinConnect platform...
 [timestamp] Homebridge v2.0.0-beta.23 (HAP v1.1.1-beta.7) (Homebridge) is running on port XXXXX.
