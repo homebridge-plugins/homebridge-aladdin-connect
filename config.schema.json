@@ -87,6 +87,12 @@
         "description": "Enable Matter support for this plugin. Requires Homebridge v2.0 or later with Matter enabled.",
         "type": "boolean",
         "default": true
+      },
+      "externalAccessory": {
+        "title": "Publish as External Accessory",
+        "description": "Publish each garage door as an independent external accessory with its own HomeKit pairing code, instead of bridging through the main Homebridge instance. Applies to both HAP and Matter modes.",
+        "type": "boolean",
+        "default": false
       }
     }
   },
@@ -122,7 +128,8 @@
           }
         },
         "preferMatter",
-        "enableMatter"
+        "enableMatter",
+        "externalAccessory"
       ]
     }
   ]

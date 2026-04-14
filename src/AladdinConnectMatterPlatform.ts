@@ -9,7 +9,7 @@ import {
   Service,
 } from 'homebridge';
 
-import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
+import { PLATFORM_NAME, PLUGIN_NAME, DEFAULT_EXTERNAL_ACCESSORY } from './settings';
 import {
   GenieAladdinConnectGarageDoorAccessory,
   GenieAladdinConnectPlatformAccessoryContext,
@@ -99,6 +99,20 @@ export class AladdinConnectMatterPlatform
       setTimeout(this.discoverDevices.bind(this), 5 * 60 * 1000);
       return;
     }
+    const externalAccessory: boolean =
+      this.config.externalAccessory ?? DEFAULT_EXTERNAL_ACCESSORY;
+
+    // When switching to external mode, unregister any cached Matter accessories.
+    if (externalAccessory && this.matterAccessories.size > 0) {
+      this.log.info(
+        'External accessory mode enabled; removing %d cached Matter accessory(s)',
+        this.matterAccessories.size,
+      );
+      const allCached = [...this.matterAccessories.values()];
+      await this.matterApi.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, allCached);
+      this.matterAccessories.clear();
+    }
+
     const discoveredUUIDs: Set<string> = new Set();
 
     for (const door of doors) {
@@ -110,33 +124,40 @@ export class AladdinConnectMatterPlatform
         const uuid = this.matterApi.uuid.generate(`${door.deviceId}:${door.index}`);
         discoveredUUIDs.add(uuid);
 
-        let matterAccessory: MatterAccessory = this.matterAccessories.get(uuid);
-        const existingAccessory = !!matterAccessory;
-        if (!matterAccessory) {
-          matterAccessory = new (this.api as MatterAPI).platformMatterAccessory(door.name, uuid);
-        }
+        const matterAccessory: MatterAccessory =
+          new (this.api as MatterAPI).platformMatterAccessory(door.name, uuid);
 
         // Update the accessory context with the door.
-        matterAccessory.context = <GenieAladdinConnectPlatformAccessoryContext>{
-          door,
-        };
+        matterAccessory.context = <GenieAladdinConnectPlatformAccessoryContext>{ door };
 
-        if (existingAccessory) {
+        if (externalAccessory) {
+          // External accessories are published independently and do not participate
+          // in the Matter platform-accessory cache lifecycle.
           this.log.info(
-            'Restoring existing Matter accessory from cache: %s (id: %s)',
-            matterAccessory.displayName,
+            'Publishing external Matter accessory: %s (id: %s)',
+            door.name,
             door.id,
           );
-          await this.matterApi.updatePlatformAccessories([matterAccessory]);
+          await this.matterApi.publishExternalAccessories(PLUGIN_NAME, [matterAccessory]);
         } else {
-          this.log.info('Adding new Matter accessory: %s (id: %s)', door.name, door.id);
-          await this.matterApi.registerPlatformAccessories(
-            PLUGIN_NAME,
-            PLATFORM_NAME,
-            [matterAccessory],
-          );
+          const existingAccessory = this.matterAccessories.has(uuid);
+          if (existingAccessory) {
+            this.log.info(
+              'Restoring existing Matter accessory from cache: %s (id: %s)',
+              matterAccessory.displayName,
+              door.id,
+            );
+            await this.matterApi.updatePlatformAccessories([matterAccessory]);
+          } else {
+            this.log.info('Adding new Matter accessory: %s (id: %s)', door.name, door.id);
+            await this.matterApi.registerPlatformAccessories(
+              PLUGIN_NAME,
+              PLATFORM_NAME,
+              [matterAccessory],
+            );
+          }
+          this.matterAccessories.set(uuid, matterAccessory);
         }
-        this.matterAccessories.set(uuid, matterAccessory);
         new GenieAladdinConnectGarageDoorAccessory(
           this,
           matterAccessory as unknown as PlatformAccessory,
@@ -146,23 +167,26 @@ export class AladdinConnectMatterPlatform
       }
     }
 
-    const orphanedAccessories = [...this.matterAccessories.values()].filter(
-      (accessory) => !discoveredUUIDs.has(accessory.UUID),
-    );
-    if (orphanedAccessories.length > 0) {
-      this.log.debug(
-        'Removing orphaned Matter accessories from cache: ',
-        orphanedAccessories
-          .map(({ displayName }: { displayName: string }) => displayName)
-          .join(', '),
+    // Orphan cleanup only applies to bridged (non-external) mode.
+    if (!externalAccessory) {
+      const orphanedAccessories = [...this.matterAccessories.values()].filter(
+        (accessory) => !discoveredUUIDs.has(accessory.UUID),
       );
-      await this.matterApi.unregisterPlatformAccessories(
-        PLUGIN_NAME,
-        PLATFORM_NAME,
-        orphanedAccessories,
-      );
-      for (const accessory of orphanedAccessories) {
-        this.matterAccessories.delete(accessory.UUID);
+      if (orphanedAccessories.length > 0) {
+        this.log.debug(
+          'Removing orphaned Matter accessories from cache: ',
+          orphanedAccessories
+            .map(({ displayName }: { displayName: string }) => displayName)
+            .join(', '),
+        );
+        await this.matterApi.unregisterPlatformAccessories(
+          PLUGIN_NAME,
+          PLATFORM_NAME,
+          orphanedAccessories,
+        );
+        for (const accessory of orphanedAccessories) {
+          this.matterAccessories.delete(accessory.UUID);
+        }
       }
     }
   }

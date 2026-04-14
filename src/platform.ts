@@ -9,7 +9,7 @@ import {
   Service,
 } from 'homebridge';
 
-import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
+import { PLATFORM_NAME, PLUGIN_NAME, DEFAULT_EXTERNAL_ACCESSORY } from './settings';
 import {
   GenieAladdinConnectGarageDoorAccessory,
   GenieAladdinConnectPlatformAccessoryContext,
@@ -62,6 +62,20 @@ export class GenieAladdinConnectHomebridgePlatform
       setTimeout(this.discoverDevices.bind(this), 5 * 60 * 1000);
       return;
     }
+    const externalAccessory: boolean =
+      this.config.externalAccessory ?? DEFAULT_EXTERNAL_ACCESSORY;
+
+    // When switching to external mode, unregister any cached platform accessories
+    // so they don't linger alongside independently-paired external accessories.
+    if (externalAccessory && this.accessories.length > 0) {
+      this.log.info(
+        'External accessory mode enabled; removing %d cached platform accessory(s)',
+        this.accessories.length,
+      );
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, this.accessories);
+      this.accessories.length = 0;
+    }
+
     const discoveredUUIDs: Set<string> = new Set();
 
     for (const door of doors) {
@@ -73,41 +87,54 @@ export class GenieAladdinConnectHomebridgePlatform
         const uuid = this.api.hap.uuid.generate(`${door.deviceId}:${door.index}`);
         discoveredUUIDs.add(uuid);
 
-        let accessory = this.accessories.find((accessory) => accessory.UUID === uuid);
-        const existingAccessory = !!accessory;
-        accessory = accessory ?? new this.api.platformAccessory(door.name, uuid);
-
-        // Update the accessory context with the door.
-        accessory.context = <GenieAladdinConnectPlatformAccessoryContext>{
-          door,
-        };
-
-        if (existingAccessory) {
-          this.log.info(
-            'Restoring existing accessory from cache: %s (id: %s)',
-            accessory.displayName,
-            door.id,
-          );
-          this.api.updatePlatformAccessories([accessory]);
+        if (externalAccessory) {
+          // External accessories are published independently each startup and do
+          // not participate in the platform-accessory cache lifecycle.
+          const accessory = new this.api.platformAccessory(door.name, uuid);
+          accessory.context = <GenieAladdinConnectPlatformAccessoryContext>{ door };
+          this.log.info('Publishing external accessory: %s (id: %s)', door.name, door.id);
+          this.api.publishExternalAccessories(PLUGIN_NAME, [accessory]);
+          new GenieAladdinConnectGarageDoorAccessory(this, accessory);
         } else {
-          this.log.info('Adding new accessory: %s (id: %s)', door.name, door.id);
-          this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+          let accessory = this.accessories.find((a) => a.UUID === uuid);
+          const existingAccessory = !!accessory;
+          accessory = accessory ?? new this.api.platformAccessory(door.name, uuid);
+
+          // Update the accessory context with the door.
+          accessory.context = <GenieAladdinConnectPlatformAccessoryContext>{
+            door,
+          };
+
+          if (existingAccessory) {
+            this.log.info(
+              'Restoring existing accessory from cache: %s (id: %s)',
+              accessory.displayName,
+              door.id,
+            );
+            this.api.updatePlatformAccessories([accessory]);
+          } else {
+            this.log.info('Adding new accessory: %s (id: %s)', door.name, door.id);
+            this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+          }
+          new GenieAladdinConnectGarageDoorAccessory(this, accessory);
         }
-        new GenieAladdinConnectGarageDoorAccessory(this, accessory);
       } else {
         this.log.info('Not adding door:', door.name, ' because it is not owned by this account.');
       }
     }
 
-    const orphanedAccessories = this.accessories.filter(
-      (accessory) => !discoveredUUIDs.has(accessory.UUID),
-    );
-    if (orphanedAccessories.length > 0) {
-      this.log.debug(
-        'Removing orphaned accessories from cache: ',
-        orphanedAccessories.map(({ displayName }) => displayName).join(', '),
+    // Orphan cleanup only applies to bridged (non-external) mode.
+    if (!externalAccessory) {
+      const orphanedAccessories = this.accessories.filter(
+        (accessory) => !discoveredUUIDs.has(accessory.UUID),
       );
-      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, orphanedAccessories);
+      if (orphanedAccessories.length > 0) {
+        this.log.debug(
+          'Removing orphaned accessories from cache: ',
+          orphanedAccessories.map(({ displayName }) => displayName).join(', '),
+        );
+        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, orphanedAccessories);
+      }
     }
   }
 }
