@@ -75,6 +75,18 @@
           "title": "Device ID",
           "type": "string"
         }
+      },
+      "preferMatter": {
+        "title": "Prefer Matter",
+        "description": "When Matter is available and enabled in Homebridge, use Matter instead of HAP. Requires Homebridge v2.0 or later.",
+        "type": "boolean",
+        "default": true
+      },
+      "enableMatter": {
+        "title": "Enable Matter",
+        "description": "Enable Matter support for this plugin. Requires Homebridge v2.0 or later with Matter enabled.",
+        "type": "boolean",
+        "default": true
       }
     }
   },
@@ -108,7 +120,9 @@
             "title": "Device ID",
             "placeholder": "eg. F0AD4E1BC74D_1"
           }
-        }
+        },
+        "preferMatter",
+        "enableMatter"
       ]
     }
   ]

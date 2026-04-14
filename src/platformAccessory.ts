@@ -1,6 +1,6 @@
 import { Characteristic, CharacteristicValue, HAP, Logger, PlatformAccessory } from 'homebridge';
 
-import { GenieAladdinConnectHomebridgePlatform } from './platform';
+import { GenieAladdinConnectPlatform } from './platform';
 import {
   AladdinConnect,
   AladdinConnectConfig,
@@ -34,7 +34,7 @@ export class GenieAladdinConnectGarageDoorAccessory {
   private _statusLowBattery = false;
 
   constructor(
-    private readonly platform: GenieAladdinConnectHomebridgePlatform,
+    private readonly platform: GenieAladdinConnectPlatform,
     private readonly accessory: PlatformAccessory,
   ) {
     this.log = this.platform.log;

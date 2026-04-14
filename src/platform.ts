@@ -16,7 +16,22 @@ import {
 } from './platformAccessory';
 import { AladdinConnect, AladdinConnectConfig, AladdinDoor } from './aladdinConnect';
 
-export class GenieAladdinConnectHomebridgePlatform implements DynamicPlatformPlugin {
+/**
+ * Shared interface implemented by both the HAP and Matter platform classes.
+ * `GenieAladdinConnectGarageDoorAccessory` depends on this interface so it
+ * can be reused by both platforms without unsafe type casts.
+ */
+export interface GenieAladdinConnectPlatform {
+  readonly log: Logger;
+  readonly api: API;
+  readonly config: PlatformConfig;
+  readonly Service: typeof Service;
+  readonly Characteristic: typeof Characteristic;
+  readonly aladdinConnect: AladdinConnect;
+}
+
+export class GenieAladdinConnectHomebridgePlatform
+  implements DynamicPlatformPlugin, GenieAladdinConnectPlatform {
   public readonly Service: typeof Service;
   public readonly Characteristic: typeof Characteristic;
   public readonly accessories: PlatformAccessory[] = [];
