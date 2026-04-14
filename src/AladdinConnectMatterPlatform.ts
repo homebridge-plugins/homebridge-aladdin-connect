@@ -1,8 +1,24 @@
-import { API, APIEvent, Characteristic, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service } from 'homebridge';
+import {
+  API,
+  APIEvent,
+  Characteristic,
+  DynamicPlatformPlugin,
+  Logger,
+  PlatformAccessory,
+  PlatformConfig,
+  Service,
+} from 'homebridge';
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
-import { GenieAladdinConnectGarageDoorAccessory, GenieAladdinConnectPlatformAccessoryContext } from './platformAccessory';
-import { AladdinConnect, AladdinConnectConfig, AladdinDoor } from './aladdinConnect';
+import {
+  GenieAladdinConnectGarageDoorAccessory,
+  GenieAladdinConnectPlatformAccessoryContext,
+} from './platformAccessory';
+import {
+  AladdinConnect,
+  AladdinConnectConfig,
+  AladdinDoor,
+} from './aladdinConnect';
 import { GenieAladdinConnectPlatform } from './platform';
 
 // Matter API types are only available in Homebridge v2.0+. Use `any` to remain
@@ -51,11 +67,14 @@ export class AladdinConnectMatterPlatform
   }
 
   configureAccessory(accessory: PlatformAccessory) {
-    // This may be called by Homebridge when restoring HAP accessories from a
-    // previous run before the plugin switched to Matter. Store them so they
-    // can be cleaned up later if needed.
-    this.log.info('Loading accessory from cache:', accessory.displayName);
-    this.accessories.push(accessory);
+    // Homebridge may call this for HAP accessories cached from a previous run
+    // (e.g., before the plugin switched to Matter). Unregister them immediately
+    // so they don't persist alongside Matter accessories and cause duplicates.
+    this.log.info(
+      'Removing stale HAP accessory cached before Matter migration: %s',
+      accessory.displayName,
+    );
+    this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
   }
 
   /**
@@ -133,13 +152,18 @@ export class AladdinConnectMatterPlatform
     if (orphanedAccessories.length > 0) {
       this.log.debug(
         'Removing orphaned Matter accessories from cache: ',
-        orphanedAccessories.map(({ displayName }: { displayName: string }) => displayName).join(', '),
+        orphanedAccessories
+          .map(({ displayName }: { displayName: string }) => displayName)
+          .join(', '),
       );
       await this.matterApi.unregisterPlatformAccessories(
         PLUGIN_NAME,
         PLATFORM_NAME,
         orphanedAccessories,
       );
+      for (const accessory of orphanedAccessories) {
+        this.matterAccessories.delete(accessory.UUID);
+      }
     }
   }
 }
