@@ -62,8 +62,7 @@ export class GenieAladdinConnectHomebridgePlatform
       setTimeout(this.discoverDevices.bind(this), 5 * 60 * 1000);
       return;
     }
-    const externalAccessory: boolean =
-      this.config.externalAccessory ?? DEFAULT_EXTERNAL_ACCESSORY;
+    const externalAccessory = this.config.externalAccessory ?? DEFAULT_EXTERNAL_ACCESSORY;
 
     // When switching to external mode, unregister any cached platform accessories
     // so they don't linger alongside independently-paired external accessories.
