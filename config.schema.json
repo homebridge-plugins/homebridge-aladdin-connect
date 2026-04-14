@@ -75,6 +75,24 @@
           "title": "Device ID",
           "type": "string"
         }
+      },
+      "preferMatter": {
+        "title": "Prefer Matter",
+        "description": "When Matter is available and enabled in Homebridge, use Matter instead of HAP. Requires Homebridge v2.0 or later.",
+        "type": "boolean",
+        "default": true
+      },
+      "enableMatter": {
+        "title": "Enable Matter",
+        "description": "Enable Matter support for this plugin. Requires Homebridge v2.0 or later with Matter enabled.",
+        "type": "boolean",
+        "default": true
+      },
+      "externalAccessory": {
+        "title": "Publish as External Accessory",
+        "description": "Publish each garage door as an independent external accessory with its own HomeKit pairing code, instead of bridging through the main Homebridge instance. Applies to both HAP and Matter modes.",
+        "type": "boolean",
+        "default": false
       }
     }
   },
@@ -108,7 +126,10 @@
             "title": "Device ID",
             "placeholder": "eg. F0AD4E1BC74D_1"
           }
-        }
+        },
+        "preferMatter",
+        "enableMatter",
+        "externalAccessory"
       ]
     }
   ]
