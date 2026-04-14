@@ -36,7 +36,9 @@ export class AladdinConnectMatterPlatform
     this.log.debug('Matter platform initialized for Aladdin Connect');
 
     if (!(this.api as MatterAPI).isMatterAvailable?.()) {
-      this.log.warn('Matter is not available in this version of Homebridge. Please update Homebridge to use Matter features.');
+      this.log.warn(
+        'Matter is not available in this version of Homebridge. Please update to Homebridge v2.0 or later to use Matter features.',
+      );
     }
 
     if (!(this.api as MatterAPI).isMatterEnabled?.()) {

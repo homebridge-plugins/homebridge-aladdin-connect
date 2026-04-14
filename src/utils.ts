@@ -14,7 +14,7 @@ import { DEFAULT_ENABLE_MATTER, DEFAULT_PREFER_MATTER } from './settings';
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createPlatformProxy(HAPPlatform: any, MatterPlatform: any): any {
-  return class AladdinConnectPlatformProxy {
+  return class GenieAladdinConnectPlatformProxy {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private impl: any;
 
