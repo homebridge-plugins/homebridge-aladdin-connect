@@ -7,7 +7,7 @@ export const PLATFORM_NAME = 'GenieAladdinConnect';
 /**
  * This must match the name of your plugin as defined the package.json
  */
-export const PLUGIN_NAME = 'homebridge-aladdin-connect';
+export const PLUGIN_NAME = '@homebridge-plugins/homebridge-aladdin-connect';
 
 /**
  * Default status low battery threshold in percent.
