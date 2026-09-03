@@ -1,3 +1,12 @@
+## [4.3.4](https://github.com/homebridge-plugins/homebridge-aladdin-connect/compare/v4.3.3...v4.3.4) (2026-09-03)
+
+
+### Features
+
+* support Node.js 26 and Homebridge v2 ([9558fa1](https://github.com/homebridge-plugins/homebridge-aladdin-connect/commit/9558fa151d16eeb9b9f135b301d87c7c794e5803))
+
+
+
 # Changelog
 
 All notable changes to this project will be documented in this file. This project uses [Semantic Versioning](https://semver.org/)
