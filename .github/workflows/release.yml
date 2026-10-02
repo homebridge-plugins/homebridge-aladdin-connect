@@ -8,6 +8,10 @@ on:
       - latest
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # 1️⃣ Determine release type, ESM status, and branch name
   determine-release-type:
