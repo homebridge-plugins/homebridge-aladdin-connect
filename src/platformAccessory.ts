@@ -195,7 +195,7 @@ export class GenieAladdinConnectGarageDoorAccessory {
         this._statusLowBattery ? 'YES' : 'NO',
         statusLowBattery ? 'YES' : 'NO',
       );
-      this.statusLowBatteryCharacteristic.updateValue(this._statusLowBattery);
+      this.statusLowBatteryCharacteristic.updateValue(statusLowBattery);
     }
     this._statusLowBattery = statusLowBattery;
   }
