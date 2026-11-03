@@ -26,6 +26,8 @@ function fakeApi() {
     authStatus: 200,
     devicesStatus: 200,
     expiresIn: 3600,
+    refreshStatus: 200,
+    rejectTokens: [],
   };
   api.adapter = async (config) => {
     const url = config.url;
@@ -34,7 +36,13 @@ function fakeApi() {
       typeof config.data === "string"
         ? JSON.parse(config.data || "{}")
         : config.data;
-    api.calls.push({ method: config.method, url, flow: body?.AuthFlow });
+    api.calls.push({
+      method: config.method,
+      url,
+      flow: body?.AuthFlow,
+      body,
+      auth: config.headers?.Authorization,
+    });
     const reply = (status, data) => {
       const response = {
         status,
@@ -55,17 +63,30 @@ function fakeApi() {
       return response;
     };
     if (url.includes("cognito-idp") && target.endsWith("InitiateAuth")) {
+      if (body.AuthFlow === "REFRESH_TOKEN_AUTH" && api.refreshStatus !== 200) {
+        return reply(api.refreshStatus, {
+          __type: "NotAuthorizedException",
+          message: "Invalid Refresh Token",
+        });
+      }
       return reply(api.authStatus, {
         AuthenticationResult: {
           AccessToken: `token-${api.calls.length}`,
           IdToken: "x.eyJjb2duaXRvOnVzZXJuYW1lIjoidXNlci1zdWIifQ.x",
-          RefreshToken: "refresh-1",
+          RefreshToken:
+            body.AuthFlow === "REFRESH_TOKEN_AUTH" ? undefined : "refresh-1",
           ExpiresIn: api.expiresIn,
           TokenType: "Bearer",
         },
       });
     }
     if (url.endsWith("/devices")) {
+      if (
+        api.rejectTokens.length &&
+        api.rejectTokens.includes(config.headers?.Authorization)
+      ) {
+        return reply(401, { message: "Unauthorized" });
+      }
       return reply(api.devicesStatus, {
         devices: [
           {
@@ -88,13 +109,22 @@ function fakeApi() {
 let api;
 let client;
 
+const PubSub = require("pubsub-js");
+
 beforeEach(() => {
+  PubSub.clearAllSubscriptions();
   api = fakeApi();
   client = new AladdinConnect(log, {
     username: "me@example.com",
     password: "secret",
   });
   client.session.defaults.adapter = api.adapter;
+  // Never let a real poll timer outlive its test.
+  client.scheduled = [];
+  client.schedulePoll = (ms) => {
+    client.scheduled.push(ms);
+    client.pollTimer = null;
+  };
 });
 
 const count = (pred) => api.calls.filter(pred).length;
@@ -184,4 +214,89 @@ test("server errors are retried", async () => {
   };
   const doors = await client.getAllDoors();
   assert.equal(doors.length, 1);
+});
+
+test("an expired access token is renewed with the refresh token, not the password", async () => {
+  api.expiresIn = 60; // expires immediately once the 60 s safety margin is applied
+  await client.getAllDoors(true);
+  await client.getAllDoors(true);
+  const flows = api.calls.filter((c) => c.flow).map((c) => c.flow);
+  assert.deepEqual(flows, ["USER_PASSWORD_AUTH", "REFRESH_TOKEN_AUTH"]);
+  const refresh = api.calls.find((c) => c.flow === "REFRESH_TOKEN_AUTH").body
+    .AuthParameters;
+  assert.equal(refresh.REFRESH_TOKEN, "refresh-1");
+  assert.equal(refresh.PASSWORD, undefined);
+  // The secret hash for refreshes is computed from Cognito's username (from the ID token).
+  const { createHmac } = require("crypto");
+  const expected = createHmac(
+    "sha256",
+    "7bokto0ep96055k42fnrmuth84k7jdcjablestb7j53o8lp63v5",
+  )
+    .update("user-sub" + "27iic8c3bvslqngl3hso83t74b")
+    .digest("base64");
+  assert.equal(refresh.SECRET_HASH, expected);
+});
+
+test("a failed refresh falls back to a password login", async () => {
+  api.expiresIn = 60;
+  api.refreshStatus = 400;
+  await client.getAllDoors(true);
+  await client.getAllDoors(true);
+  const flows = api.calls.filter((c) => c.flow).map((c) => c.flow);
+  assert.deepEqual(flows, [
+    "USER_PASSWORD_AUTH",
+    "REFRESH_TOKEN_AUTH",
+    "USER_PASSWORD_AUTH",
+  ]);
+});
+
+test("a token rejected by Genie (401) is replaced and the request retried once", async () => {
+  await client.getAllDoors(true);
+  api.rejectTokens = [api.calls.find((c) => c.auth)?.auth];
+  const doors = await client.getAllDoors(true);
+  assert.equal(doors.length, 1);
+  assert.equal(logins(), 2);
+});
+
+// Poll scheduling: replace the timer with a recorder and drive poll() by hand.
+function recordPolls() {
+  const scheduled = client.scheduled;
+  const sub = client.subscribe(
+    { deviceId: 42, index: 1, name: "Garage Door" },
+    (info) => (sub.last = info),
+  );
+  return { scheduled, sub };
+}
+
+test("polls every 15 s while the door is still", async () => {
+  const { scheduled } = recordPolls();
+  await client.poll();
+  assert.equal(scheduled.at(-1), 15000);
+});
+
+test("polls every 3 s while the door is moving", async () => {
+  const { scheduled } = recordPolls();
+  api.doorStatus = 2; // OPENING
+  await client.poll();
+  assert.equal(scheduled.at(-1), 3000);
+});
+
+test("polls fast right after a command, before Genie reports movement", async () => {
+  const { scheduled } = recordPolls();
+  const [d] = await client.getAllDoors();
+  await client.setDoorStatus(d, 1);
+  assert.equal(scheduled.at(-1), 1000);
+  await client.poll(); // Genie still says CLOSED
+  assert.equal(scheduled.at(-1), 3000);
+});
+
+test("backs off while Genie is unreachable and recovers", async () => {
+  const { scheduled } = recordPolls();
+  api.devicesStatus = 503;
+  await client.poll();
+  await client.poll();
+  assert.deepEqual(scheduled.slice(-2), [30000, 60000]);
+  api.devicesStatus = 200;
+  await client.poll();
+  assert.equal(scheduled.at(-1), 15000);
 });

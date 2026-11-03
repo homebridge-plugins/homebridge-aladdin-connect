@@ -14,6 +14,9 @@ export interface GenieAladdinConnectPlatformAccessoryContext {
   door: AladdinDoor;
 }
 
+// How long to wait for the door to respond to a command before showing its real state again.
+const COMMAND_TIMEOUT_MS = 60 * 1000;
+
 export class GenieAladdinConnectGarageDoorAccessory {
   private readonly log: Logger;
   private readonly hap: HAP;
@@ -32,6 +35,10 @@ export class GenieAladdinConnectGarageDoorAccessory {
   private _obstructionDetected = false;
   private _batteryLevel = 100;
   private _statusLowBattery = false;
+
+  // The target set from HomeKit that the door has not reached yet, and when to give up on it.
+  private pendingTarget: AladdinDesiredDoorStatus | null = null;
+  private pendingTargetDeadline = 0;
 
   constructor(
     private readonly platform: GenieAladdinConnectHomebridgePlatform,
@@ -89,8 +96,35 @@ export class GenieAladdinConnectGarageDoorAccessory {
       if (this.door.hasBatteryLevel && info.batteryPercent !== null) {
         this.batteryLevel = info.batteryPercent;
       }
-      this.desiredStatus = this.convertStatusToDesiredStatus(this.currentStatus);
+      this.updateDesiredStatusFromDoor();
     });
+  }
+
+  /**
+   * Keep TargetDoorState in step with the door. Right after a command Genie can still report the
+   * old position for a few seconds; showing that would flip the Home app's toggle back. So while a
+   * command is pending, hold the requested target until the door reaches it or the command times
+   * out, then fall back to whatever the door reports.
+   */
+  private updateDesiredStatusFromDoor(): void {
+    const reported = this.convertStatusToDesiredStatus(this.currentStatus);
+    if (this.pendingTarget !== null) {
+      if (reported === this.pendingTarget) {
+        this.pendingTarget = null;
+      } else if (Date.now() >= this.pendingTargetDeadline) {
+        this.log.warn(
+          '[%s] Door did not respond to %s within %ds; it is reported %s',
+          this.door.name,
+          AladdinDesiredDoorStatus[this.pendingTarget],
+          COMMAND_TIMEOUT_MS / 1000,
+          AladdinDoorStatus[this.currentStatus],
+        );
+        this.pendingTarget = null;
+      } else {
+        return;
+      }
+    }
+    this.desiredStatus = reported;
   }
 
   private get currentStatus(): AladdinDoorStatus {
@@ -142,9 +176,12 @@ export class GenieAladdinConnectGarageDoorAccessory {
       AladdinDesiredDoorStatus[value],
     );
     this._desiredStatus = value;
-    this.targetStateCharacteristic.updateValue(
-      this.convertDesiredStatusToTargetStateValue(this._desiredStatus),
-    );
+    // NONE (door status unknown) has no HomeKit equivalent; leave the last target showing.
+    if (value !== AladdinDesiredDoorStatus.NONE) {
+      this.targetStateCharacteristic.updateValue(
+        this.convertDesiredStatusToTargetStateValue(this._desiredStatus),
+      );
+    }
   }
 
   private get obstructionDetected(): boolean {
@@ -202,7 +239,7 @@ export class GenieAladdinConnectGarageDoorAccessory {
 
   private async setTargetDoorState(value: CharacteristicValue): Promise<void> {
     const desiredStatus = this.convertTargetStateValueToDesiredStatus(value);
-    if (desiredStatus === this.desiredStatus) {
+    if (desiredStatus === this.desiredStatus && this.pendingTarget === null) {
       this.log.debug(
         '[%s] Set Characteristic TargetDoorState -> %s, already set TargetDoorState -> %s. Cancelling.',
         this.door.name,
@@ -232,8 +269,17 @@ export class GenieAladdinConnectGarageDoorAccessory {
     try {
       await this.aladdinConnect.setDoorStatus(this.door, desiredStatus);
     } catch (error: unknown) {
+      // Put the Home app's toggle back where the door really is.
+      setImmediate(() =>
+        this.targetStateCharacteristic.updateValue(
+          this.convertDesiredStatusToTargetStateValue(this.desiredStatus),
+        ),
+      );
       throw new this.hap.HapStatusError(this.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
     }
+    this.pendingTarget = desiredStatus;
+    this.pendingTargetDeadline = Date.now() + COMMAND_TIMEOUT_MS;
+    this.desiredStatus = desiredStatus;
   }
 
   private async getTargetDoorState(): Promise<CharacteristicValue> {
@@ -312,7 +358,7 @@ export class GenieAladdinConnectGarageDoorAccessory {
         return this.platform.Characteristic.CurrentDoorState.STOPPED;
       default:
         this.log.debug('[%s] Unknown Aladdin door status -> %d', this.door.name, status);
-        throw new this.hap.HapStatusError(this.hap.HAPStatus.INVALID_VALUE_IN_REQUEST);
+        return this.platform.Characteristic.CurrentDoorState.STOPPED;
     }
   }
 
@@ -325,8 +371,11 @@ export class GenieAladdinConnectGarageDoorAccessory {
       case AladdinDesiredDoorStatus.CLOSED:
         return this.platform.Characteristic.TargetDoorState.CLOSED;
       default:
-        this.log.debug('[%s] Unknown Aladdin door desired status -> %d', this.door.name, status);
-        throw new this.hap.HapStatusError(this.hap.HAPStatus.INVALID_VALUE_IN_REQUEST);
+        // Door status unknown (e.g. right after startup): report the last known target.
+        return (
+          (this.targetStateCharacteristic.value as number | null) ??
+          this.platform.Characteristic.TargetDoorState.CLOSED
+        );
     }
   }
 
@@ -342,10 +391,8 @@ export class GenieAladdinConnectGarageDoorAccessory {
         return AladdinDesiredDoorStatus.CLOSED;
       case AladdinDoorStatus.UNKNOWN:
       case AladdinDoorStatus.NOT_CONFIGURED:
-        return AladdinDesiredDoorStatus.NONE;
       default:
-        this.log.debug('[%s] Unknown Aladdin door status -> %d', this.door.name, status);
-        throw new this.hap.HapStatusError(this.hap.HAPStatus.INVALID_VALUE_IN_REQUEST);
+        return AladdinDesiredDoorStatus.NONE;
     }
   }
 }
