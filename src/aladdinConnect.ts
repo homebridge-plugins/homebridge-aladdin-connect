@@ -196,6 +196,9 @@ export class AladdinConnect {
         // Acquire the status lock before emitting any new events.
         this.log.debug('[API] Polling status for all doors');
         try {
+          // Always fetch fresh status when polling. The cache only serves other callers; if the
+          // poller used it, a poll interval at or below the cache TTL would republish stale status.
+          await this.cache.del(AladdinConnect.ALL_DOORS_CACHE_KEY);
           (await this.getAllDoors()).map((doorStatus) => {
             PubSub.publish(AladdinConnect.doorStatusTopic(doorStatus), doorStatus);
           });

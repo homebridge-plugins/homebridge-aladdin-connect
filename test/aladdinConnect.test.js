@@ -105,8 +105,37 @@ test("access token is reused for its lifetime instead of logging in on every cal
   api.expiresIn = 60; // 30 s usable lifetime after the 30 s safety margin
   await client.getAllDoors();
   await new Promise((r) => setTimeout(r, 50));
+  // Clear the door cache so the second call has to ask for a token again.
+  await client.cache.del("getAllDoors");
   await client.getAllDoors();
+  assert.equal(deviceFetches(), 2);
   assert.equal(logins(), 1);
+});
+
+test("polling fetches fresh status even when the poll interval is below the cache TTL", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const fast = new AladdinConnect(log, {
+    username: "me@example.com",
+    password: "secret",
+    doorStatusPollInterval: 5000, // below the 15 s stationary cache TTL
+  });
+  fast.session.defaults.adapter = api.adapter;
+  const [d] = await fast.getAllDoors();
+  const seen = [];
+  const token = fast.subscribe(d, (info) => seen.push(info.status));
+  const settle = () => new Promise((r) => setImmediate(r));
+  try {
+    t.mock.timers.tick(0); // first poll
+    for (let i = 0; i < 5; i++) await settle();
+    api.doorStatus = 2;
+    t.mock.timers.tick(5000); // second poll, well inside the cache TTL
+    for (let i = 0; i < 5; i++) await settle();
+    t.mock.timers.tick(0); // pubsub-js delivers messages on a 0 ms timer
+    assert.equal(deviceFetches(), 3);
+    assert.deepEqual(seen, [4, 2]);
+  } finally {
+    fast.unsubscribe(token);
+  }
 });
 
 test("door status is cached for the configured number of seconds", async () => {
