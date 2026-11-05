@@ -331,7 +331,12 @@ export class AladdinConnect {
     });
   }
 
-  async setDoorStatus(door: AladdinDoor, desiredStatus: AladdinDesiredDoorStatus): Promise<void> {
+  /**
+   * Send a command and start fast polling until the door gets there.
+   * @returns when the command will be given up on (Date.now() time), so the accessory can stop
+   * holding the requested target at exactly the moment fast polling stops.
+   */
+  async setDoorStatus(door: AladdinDoor, desiredStatus: AladdinDesiredDoorStatus): Promise<number> {
     await this.lock.acquire(AladdinConnect.DOOR_STATUS_LOCK, async () => {
       const command = desiredStatus === AladdinDesiredDoorStatus.OPEN ? 'OPEN_DOOR' : 'CLOSE_DOOR';
       let response: AxiosResponse;
@@ -359,11 +364,10 @@ export class AladdinConnect {
     });
     // Poll fast, starting almost immediately, until the door gets there, so HomeKit sees it start
     // moving within a second or two instead of at the next regular poll.
-    this.pendingCommands.set(AladdinConnect.doorKey(door), {
-      target: desiredStatus,
-      deadline: Date.now() + COMMAND_TIMEOUT_MS,
-    });
+    const deadline = Date.now() + COMMAND_TIMEOUT_MS;
+    this.pendingCommands.set(AladdinConnect.doorKey(door), { target: desiredStatus, deadline });
     this.schedulePoll(AladdinConnect.COMMAND_FIRST_POLL_DELAY_MS);
+    return deadline;
   }
 
   /**

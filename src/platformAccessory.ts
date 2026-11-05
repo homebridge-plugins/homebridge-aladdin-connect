@@ -264,8 +264,9 @@ export class GenieAladdinConnectGarageDoorAccessory {
       );
     }
 
+    let deadline: number;
     try {
-      await this.aladdinConnect.setDoorStatus(this.door, desiredStatus);
+      deadline = await this.aladdinConnect.setDoorStatus(this.door, desiredStatus);
     } catch (error: unknown) {
       // Put the Home app's toggle back where the door really is.
       setImmediate(() =>
@@ -276,7 +277,8 @@ export class GenieAladdinConnectGarageDoorAccessory {
       throw new this.hap.HapStatusError(this.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
     }
     this.pendingTarget = desiredStatus;
-    this.pendingTargetDeadline = Date.now() + COMMAND_TIMEOUT_MS;
+    // The client's deadline, so the target is let go on the same poll that ends fast polling.
+    this.pendingTargetDeadline = deadline;
     this.desiredStatus = desiredStatus;
   }
 

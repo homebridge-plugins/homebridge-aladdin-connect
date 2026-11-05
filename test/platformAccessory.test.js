@@ -44,6 +44,7 @@ beforeEach(() => {
     async setDoorStatus(_door, desired) {
       if (this.fail) throw new Error("boom");
       this.commands.push(desired);
+      return Date.now() + 60 * 1000;
     },
   };
   const platformAccessory = new Accessory("Garage Door", uuid.generate("test"));
@@ -94,6 +95,16 @@ test("a command the door never acts on is given up after the timeout", async (t)
   report(S.CLOSED);
   assert.equal(target(), Target.CLOSED);
   assert.equal(warnings.length, 1);
+});
+
+test("the target is let go at the client's deadline, when fast polling stops", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"] });
+  genie.setDoorStatus = async () => Date.now() + 5000; // client gives up after 5 s
+  report(S.CLOSED);
+  await tapTarget(Target.OPEN);
+  t.mock.timers.tick(5000);
+  report(S.CLOSED);
+  assert.equal(target(), Target.CLOSED);
 });
 
 test("a failed command puts the toggle back and reports an error to HomeKit", async () => {
