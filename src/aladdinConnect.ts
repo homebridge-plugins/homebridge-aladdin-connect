@@ -1,8 +1,4 @@
 import { Logger } from 'homebridge';
-import { Cache, createCache } from 'cache-manager';
-import { Keyv } from 'keyv';
-import { KeyvCacheableMemory } from 'cacheable';
-
 import * as https from 'https';
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import axiosRetry from 'axios-retry';
@@ -110,31 +106,27 @@ export interface AladdinConnectConfig {
   username: string;
   password: string;
   batteryLowLevel?: number;
-  doorStatusStationaryCacheTtl?: number;
-  doorStatusTransitioningCacheTtl?: number;
   doorStatusPollInterval?: number;
   logApiResponses?: boolean;
   logDoorStateChanges?: boolean;
   showShared?: boolean;
 }
 
+/**
+ * How long a command may take before it is given up on: the client stops fast polling for it and
+ * the accessory stops holding the requested target and shows the door's real state again.
+ */
+export const COMMAND_TIMEOUT_MS = 60 * 1000;
+
 export class AladdinConnect {
   private static readonly PUB_SUB_DOOR_STATUS_TOPIC = 'door';
-
-  private static readonly DOOR_STATUS_STATIONARY_CACHE_TTL_S_DEFAULT = 15;
-  private static readonly DOOR_STATUS_STATIONARY_CACHE_TTL_S_MIN = 5;
-  private static readonly DOOR_STATUS_STATIONARY_CACHE_TTL_S_MAX = 60;
-
-  private static readonly DOOR_STATUS_TRANSITIONING_CACHE_TTL_S_DEFAULT = 3;
-  private static readonly DOOR_STATUS_TRANSITIONING_CACHE_TTL_S_MIN = 1;
-  private static readonly DOOR_STATUS_TRANSITIONING_CACHE_TTL_S_MAX = 30;
 
   private static readonly DOOR_STATUS_POLL_INTERVAL_MS_DEFAULT = 15 * 1000;
   private static readonly DOOR_STATUS_POLL_INTERVAL_MS_MIN = 5 * 1000;
   private static readonly DOOR_STATUS_POLL_INTERVAL_MS_MAX = 60 * 1000;
 
-  // After a command, poll quickly for this long even before Genie reports the door moving.
-  private static readonly COMMAND_FAST_POLL_WINDOW_MS = 60 * 1000;
+  // Poll interval while a door is moving or a command has not finished yet.
+  private static readonly FAST_POLL_INTERVAL_MS = 3 * 1000;
   // Delay before the first poll after a command, giving Genie a moment to start the door.
   private static readonly COMMAND_FIRST_POLL_DELAY_MS = 1000;
   // Upper bound for the poll interval while Genie is unreachable.
@@ -152,10 +144,8 @@ export class AladdinConnect {
 
   private static readonly DOOR_STATUS_LOCK = 'DOOR_STATUS';
   private static readonly AUTH_LOCK = 'AUTH';
-  private static readonly ALL_DOORS_CACHE_KEY = 'getAllDoors';
 
   private readonly lock = new AsyncLock();
-  private readonly cache: Cache;
   private readonly session: AxiosInstance;
 
   private accessToken: string | null = null;
@@ -164,19 +154,18 @@ export class AladdinConnect {
   private cognitoUsername: string | null = null;
 
   private pollTimer: NodeJS.Timeout | null = null;
-  private fastPollUntil = 0;
+  // Commands still under way, by door: the position asked for and when to give up on it.
+  private readonly pendingCommands = new Map<
+    string,
+    { target: AladdinDesiredDoorStatus; deadline: number }
+  >();
+
   private consecutivePollFailures = 0;
 
   constructor(
     public readonly log: Logger,
     private readonly config: AladdinConnectConfig,
   ) {
-    const store = new KeyvCacheableMemory({
-      ttl: undefined, // No default ttl
-      lruSize: 0, // Infinite capacity
-    });
-    const keyv = new Keyv({ store });
-    this.cache = createCache({ stores: [keyv] });
     this.session = axios.create({
       httpsAgent: new https.Agent({ keepAlive: true }),
       timeout: AladdinConnect.API_TIMEOUT,
@@ -225,15 +214,6 @@ export class AladdinConnect {
     this.log.debug('[API] Status subscription removed for token %s', token);
   }
 
-  /**
-   * Poll quickly for a while, starting almost immediately. Called after a command so HomeKit sees
-   * the door start moving within a second or two instead of at the next regular poll.
-   */
-  pollSoon(): void {
-    this.fastPollUntil = Date.now() + AladdinConnect.COMMAND_FAST_POLL_WINDOW_MS;
-    this.schedulePoll(AladdinConnect.COMMAND_FIRST_POLL_DELAY_MS);
-  }
-
   private schedulePoll(delayMs: number): void {
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
@@ -251,7 +231,7 @@ export class AladdinConnect {
     this.log.debug('[API] Polling status for all doors');
     let nextPollMs: number;
     try {
-      const doors = await this.getAllDoors(true);
+      const doors = await this.getAllDoors();
       if (this.consecutivePollFailures > 0) {
         this.log.info(
           '[API] Genie is reachable again after %d failed poll(s)',
@@ -262,14 +242,16 @@ export class AladdinConnect {
       doors.forEach((doorStatus) => {
         PubSub.publish(AladdinConnect.doorStatusTopic(doorStatus), doorStatus);
       });
+      this.settlePendingCommands(doors);
       const moving = doors.some((door) =>
         [AladdinDoorStatus.OPENING, AladdinDoorStatus.CLOSING].includes(door.status),
       );
       nextPollMs =
-        moving || Date.now() < this.fastPollUntil
-          ? this.doorStatusTransitioningCacheTtl * 1000
+        moving || this.pendingCommands.size > 0
+          ? AladdinConnect.FAST_POLL_INTERVAL_MS
           : this.pollIntervalMs;
     } catch (error: unknown) {
+      this.settlePendingCommands([]);
       this.consecutivePollFailures++;
       nextPollMs = Math.min(
         AladdinConnect.MAX_BACKOFF_MS,
@@ -282,71 +264,69 @@ export class AladdinConnect {
         Math.round(nextPollMs / 1000),
       );
     }
-    // pollSoon() may have scheduled a sooner poll while this one was in flight; keep that one.
+    // A command may have scheduled a sooner poll while this one was in flight; keep that one.
     if (!this.pollTimer) {
       this.schedulePoll(nextPollMs);
     }
   }
 
   /**
-   * @param refresh skip the cache and fetch fresh status (used by the poller, which already
-   * controls how often it asks).
+   * Stop fast polling for commands that have finished: the door reached the commanded position or
+   * Genie reported a timeout, or the command ran past COMMAND_TIMEOUT_MS.
    */
-  async getAllDoors(refresh = false): Promise<AladdinDoor[]> {
-    return this.lock.acquire(AladdinConnect.DOOR_STATUS_LOCK, async (): Promise<AladdinDoor[]> => {
-      if (refresh) {
-        await this.cache.del(AladdinConnect.ALL_DOORS_CACHE_KEY);
+  private settlePendingCommands(doors: AladdinDoor[]): void {
+    const now = Date.now();
+    for (const [key, { target, deadline }] of this.pendingCommands) {
+      const door = doors.find((d) => AladdinConnect.doorKey(d) === key);
+      // Only the timeout for this command's direction counts; a door can still show a timeout
+      // from an earlier attempt in the other direction when the new command is sent.
+      const finished =
+        target === AladdinDesiredDoorStatus.OPEN
+          ? [AladdinDoorStatus.OPEN, AladdinDoorStatus.TIMEOUT_OPENING]
+          : [AladdinDoorStatus.CLOSED, AladdinDoorStatus.TIMEOUT_CLOSING];
+      const arrived = door !== undefined && finished.includes(door.status);
+      if (arrived || now >= deadline) {
+        this.pendingCommands.delete(key);
       }
-      return this.cache.wrap(
-        AladdinConnect.ALL_DOORS_CACHE_KEY,
-        async () => {
-          const response: AxiosResponse<AladdinDevicesEntity> = await this.withAccessToken(
-            (token) =>
-              this.session.get(`https://${AladdinConnect.API_HOST}/devices`, {
-                headers: { Authorization: `Bearer ${token}` },
-              }),
-          );
+    }
+  }
 
-          if (this.config.logApiResponses) {
-            this.log.debug('[API] Configuration response: %s', JSON.stringify(response.data));
-          }
+  async getAllDoors(): Promise<AladdinDoor[]> {
+    return this.lock.acquire(AladdinConnect.DOOR_STATUS_LOCK, async (): Promise<AladdinDoor[]> => {
+      const response: AxiosResponse<AladdinDevicesEntity> = await this.withAccessToken((token) =>
+        this.session.get(`https://${AladdinConnect.API_HOST}/devices`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      );
 
-          return response.data.devices.flatMap((device) =>
-            device.doors.map((door) => {
-              const name = door?.name || 'Garage Door';
-              const status = door?.status ?? AladdinDoorStatus.UNKNOWN;
-              const linkStatus = door?.link_status ?? AladdinLink.UNKNOWN;
-              const batteryLevel = door?.battery_level ?? 0;
-              const fault = !!door?.fault;
-              return {
-                deviceId: device.id,
-                id: door.id,
-                index: door.door_index,
-                serialNumber: device.serial_number,
-                name,
-                // The devices that do not have batteries report a level of 0.
-                // I could not identify a better way to figure this out as I only have
-                // non-battery devices.
-                hasBatteryLevel: (door.battery_level ?? 0) > 0,
-                ownership: device.ownership,
-                status: status,
-                batteryPercent:
-                  linkStatus === AladdinLink.CONNECTED && batteryLevel > 0 ? batteryLevel : null,
-                fault,
-              };
-            }),
-          );
-        },
-        // cache-manager v7 TTLs are in milliseconds.
-        (doors: AladdinDoor[]) =>
-          1000 *
-          (doors.some((door) =>
-            [AladdinDoorStatus.CLOSING, AladdinDoorStatus.OPENING].includes(
-              door?.status ?? AladdinDoorStatus.UNKNOWN,
-            ),
-          )
-            ? this.doorStatusTransitioningCacheTtl
-            : this.doorStatusStationaryCacheTtl),
+      if (this.config.logApiResponses) {
+        this.log.debug('[API] Configuration response: %s', JSON.stringify(response.data));
+      }
+
+      return response.data.devices.flatMap((device) =>
+        device.doors.map((door) => {
+          const name = door?.name || 'Garage Door';
+          const status = door?.status ?? AladdinDoorStatus.UNKNOWN;
+          const linkStatus = door?.link_status ?? AladdinLink.UNKNOWN;
+          const batteryLevel = door?.battery_level ?? 0;
+          const fault = !!door?.fault;
+          return {
+            deviceId: device.id,
+            id: door.id,
+            index: door.door_index,
+            serialNumber: device.serial_number,
+            name,
+            // The devices that do not have batteries report a level of 0.
+            // I could not identify a better way to figure this out as I only have
+            // non-battery devices.
+            hasBatteryLevel: (door.battery_level ?? 0) > 0,
+            ownership: device.ownership,
+            status: status,
+            batteryPercent:
+              linkStatus === AladdinLink.CONNECTED && batteryLevel > 0 ? batteryLevel : null,
+            fault,
+          };
+        }),
       );
     });
   }
@@ -376,11 +356,14 @@ export class AladdinConnect {
       if (this.config.logApiResponses) {
         this.log.debug('[API] Genie %s response: %s', command, JSON.stringify(response.data));
       }
-
-      // Drop the cached door list so the next poll reflects the command.
-      await this.cache.del(AladdinConnect.ALL_DOORS_CACHE_KEY);
     });
-    this.pollSoon();
+    // Poll fast, starting almost immediately, until the door gets there, so HomeKit sees it start
+    // moving within a second or two instead of at the next regular poll.
+    this.pendingCommands.set(AladdinConnect.doorKey(door), {
+      target: desiredStatus,
+      deadline: Date.now() + COMMAND_TIMEOUT_MS,
+    });
+    this.schedulePoll(AladdinConnect.COMMAND_FIRST_POLL_DELAY_MS);
   }
 
   /**
@@ -410,8 +393,19 @@ export class AladdinConnect {
         try {
           return await this.authenticate('REFRESH_TOKEN_AUTH');
         } catch (error: unknown) {
-          this.log.debug(
-            '[API] Token refresh failed (%s); logging in again',
+          // A network error or outage says nothing about the refresh token, and a password login
+          // would fail the same way, so only give up on the token when Cognito rejects it.
+          if (!AladdinConnect.isNotAuthorized(error)) {
+            this.log.debug(
+              '[API] Token refresh failed (%s); keeping the refresh token',
+              AladdinConnect.describeError(error),
+            );
+            throw error;
+          }
+          // Expected when the refresh token expires (every 30 days by default); if it shows up
+          // every hour, refreshes are being rejected and every renewal costs a password login.
+          this.log.warn(
+            '[API] Refresh token was rejected (%s); logging in with the password',
             AladdinConnect.describeError(error),
           );
           this.refreshToken = null;
@@ -492,6 +486,15 @@ export class AladdinConnect {
     }
   }
 
+  /** Whether Cognito rejected the credentials, as opposed to the request failing. */
+  private static isNotAuthorized(error: unknown): boolean {
+    if (!axios.isAxiosError(error) || error.response?.status !== 400) {
+      return false;
+    }
+    const type = (error.response.data as { __type?: string } | undefined)?.__type ?? '';
+    return type.endsWith('NotAuthorizedException');
+  }
+
   /** A short, log-friendly description of an error, including Genie/Cognito's own message. */
   static describeError(error: unknown): string {
     if (axios.isAxiosError(error)) {
@@ -506,28 +509,6 @@ export class AladdinConnect {
     return error instanceof Error ? error.message : String(error);
   }
 
-  private get doorStatusStationaryCacheTtl(): number {
-    return Math.max(
-      AladdinConnect.DOOR_STATUS_STATIONARY_CACHE_TTL_S_MIN,
-      Math.min(
-        AladdinConnect.DOOR_STATUS_STATIONARY_CACHE_TTL_S_MAX,
-        this.config.doorStatusStationaryCacheTtl ??
-          AladdinConnect.DOOR_STATUS_STATIONARY_CACHE_TTL_S_DEFAULT,
-      ),
-    );
-  }
-
-  private get doorStatusTransitioningCacheTtl(): number {
-    return Math.max(
-      AladdinConnect.DOOR_STATUS_TRANSITIONING_CACHE_TTL_S_MIN,
-      Math.min(
-        AladdinConnect.DOOR_STATUS_TRANSITIONING_CACHE_TTL_S_MAX,
-        this.config.doorStatusTransitioningCacheTtl ??
-          AladdinConnect.DOOR_STATUS_TRANSITIONING_CACHE_TTL_S_DEFAULT,
-      ),
-    );
-  }
-
   private get pollIntervalMs(): number {
     return Math.max(
       AladdinConnect.DOOR_STATUS_POLL_INTERVAL_MS_MIN,
@@ -538,7 +519,11 @@ export class AladdinConnect {
     );
   }
 
+  private static doorKey(door: Pick<AladdinDoor, 'deviceId' | 'index'>): string {
+    return `${door.deviceId}.${door.index}`;
+  }
+
   private static doorStatusTopic(door: AladdinDoor): string {
-    return `${AladdinConnect.PUB_SUB_DOOR_STATUS_TOPIC}.${door.deviceId}.${door.index}`;
+    return `${AladdinConnect.PUB_SUB_DOOR_STATUS_TOPIC}.${AladdinConnect.doorKey(door)}`;
   }
 }

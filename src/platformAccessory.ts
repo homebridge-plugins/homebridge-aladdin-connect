@@ -7,15 +7,13 @@ import {
   AladdinDesiredDoorStatus,
   AladdinDoor,
   AladdinDoorStatus,
+  COMMAND_TIMEOUT_MS,
 } from './aladdinConnect';
 import { DEFAULT_STATUS_LOW_BATTERY_PERCENT } from './settings';
 
 export interface GenieAladdinConnectPlatformAccessoryContext {
   door: AladdinDoor;
 }
-
-// How long to wait for the door to respond to a command before showing its real state again.
-const COMMAND_TIMEOUT_MS = 60 * 1000;
 
 export class GenieAladdinConnectGarageDoorAccessory {
   private readonly log: Logger;

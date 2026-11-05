@@ -64,10 +64,12 @@ function fakeApi() {
     };
     if (url.includes("cognito-idp") && target.endsWith("InitiateAuth")) {
       if (body.AuthFlow === "REFRESH_TOKEN_AUTH" && api.refreshStatus !== 200) {
-        return reply(api.refreshStatus, {
-          __type: "NotAuthorizedException",
-          message: "Invalid Refresh Token",
-        });
+        return reply(
+          api.refreshStatus,
+          api.refreshStatus === 400
+            ? { __type: "NotAuthorizedException", message: "Invalid Refresh Token" }
+            : {},
+        );
       }
       return reply(api.authStatus, {
         AuthenticationResult: {
@@ -132,56 +134,20 @@ const logins = () => count((c) => c.url.includes("cognito-idp"));
 const deviceFetches = () => count((c) => c.url.endsWith("/devices"));
 
 test("access token is reused for its lifetime instead of logging in on every call", async () => {
-  api.expiresIn = 60; // 30 s usable lifetime after the 30 s safety margin
+  api.expiresIn = 120; // 60 s usable lifetime after the 60 s safety margin
   await client.getAllDoors();
   await new Promise((r) => setTimeout(r, 50));
-  // Clear the door cache so the second call has to ask for a token again.
-  await client.cache.del("getAllDoors");
   await client.getAllDoors();
   assert.equal(deviceFetches(), 2);
   assert.equal(logins(), 1);
 });
 
-test("polling fetches fresh status even when the poll interval is below the cache TTL", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  const fast = new AladdinConnect(log, {
-    username: "me@example.com",
-    password: "secret",
-    doorStatusPollInterval: 5000, // below the 15 s stationary cache TTL
-  });
-  fast.session.defaults.adapter = api.adapter;
-  const [d] = await fast.getAllDoors();
-  const seen = [];
-  const token = fast.subscribe(d, (info) => seen.push(info.status));
-  const settle = () => new Promise((r) => setImmediate(r));
-  try {
-    t.mock.timers.tick(0); // first poll
-    for (let i = 0; i < 5; i++) await settle();
-    api.doorStatus = 2;
-    t.mock.timers.tick(5000); // second poll, well inside the cache TTL
-    for (let i = 0; i < 5; i++) await settle();
-    t.mock.timers.tick(0); // pubsub-js delivers messages on a 0 ms timer
-    assert.equal(deviceFetches(), 3);
-    assert.deepEqual(seen, [4, 2]);
-  } finally {
-    fast.unsubscribe(token);
-  }
-});
-
-test("door status is cached for the configured number of seconds", async () => {
+test("every status request goes to Genie (there is no status cache)", async () => {
   await client.getAllDoors();
-  await new Promise((r) => setTimeout(r, 50));
-  await client.getAllDoors();
-  assert.equal(deviceFetches(), 1);
-});
-
-test("a command invalidates the cached door status", async () => {
-  const [d] = await client.getAllDoors();
-  await client.setDoorStatus(d, 1);
   api.doorStatus = 2;
-  const [after] = await client.getAllDoors();
+  const [d] = await client.getAllDoors();
   assert.equal(deviceFetches(), 2);
-  assert.equal(after.status, 2);
+  assert.equal(d.status, 2);
 });
 
 test("a rejected login is not retried", async () => {
@@ -218,8 +184,8 @@ test("server errors are retried", async () => {
 
 test("an expired access token is renewed with the refresh token, not the password", async () => {
   api.expiresIn = 60; // expires immediately once the 60 s safety margin is applied
-  await client.getAllDoors(true);
-  await client.getAllDoors(true);
+  await client.getAllDoors();
+  await client.getAllDoors();
   const flows = api.calls.filter((c) => c.flow).map((c) => c.flow);
   assert.deepEqual(flows, ["USER_PASSWORD_AUTH", "REFRESH_TOKEN_AUTH"]);
   const refresh = api.calls.find((c) => c.flow === "REFRESH_TOKEN_AUTH").body
@@ -237,11 +203,11 @@ test("an expired access token is renewed with the refresh token, not the passwor
   assert.equal(refresh.SECRET_HASH, expected);
 });
 
-test("a failed refresh falls back to a password login", async () => {
+test("a refresh token Cognito rejects falls back to a password login", async () => {
   api.expiresIn = 60;
   api.refreshStatus = 400;
-  await client.getAllDoors(true);
-  await client.getAllDoors(true);
+  await client.getAllDoors();
+  await client.getAllDoors();
   const flows = api.calls.filter((c) => c.flow).map((c) => c.flow);
   assert.deepEqual(flows, [
     "USER_PASSWORD_AUTH",
@@ -250,10 +216,22 @@ test("a failed refresh falls back to a password login", async () => {
   ]);
 });
 
+test("a refresh that fails for another reason keeps the refresh token and skips the password", async () => {
+  api.expiresIn = 60;
+  await client.getAllDoors();
+  api.refreshStatus = 503; // outlasts the retries
+  await assert.rejects(client.getAllDoors());
+  api.refreshStatus = 200;
+  await client.getAllDoors();
+  const flows = api.calls.filter((c) => c.flow).map((c) => c.flow);
+  assert.equal(flows.filter((f) => f === "USER_PASSWORD_AUTH").length, 1);
+  assert.equal(flows.at(-1), "REFRESH_TOKEN_AUTH");
+});
+
 test("a token rejected by Genie (401) is replaced and the request retried once", async () => {
-  await client.getAllDoors(true);
+  await client.getAllDoors();
   api.rejectTokens = [api.calls.find((c) => c.auth)?.auth];
-  const doors = await client.getAllDoors(true);
+  const doors = await client.getAllDoors();
   assert.equal(doors.length, 1);
   assert.equal(logins(), 2);
 });
@@ -281,6 +259,13 @@ test("polls every 3 s while the door is moving", async () => {
   assert.equal(scheduled.at(-1), 3000);
 });
 
+test("uses the configured poll interval while the door is still", async () => {
+  client.config.doorStatusPollInterval = 5000;
+  const { scheduled } = recordPolls();
+  await client.poll();
+  assert.equal(scheduled.at(-1), 5000);
+});
+
 test("polls fast right after a command, before Genie reports movement", async () => {
   const { scheduled } = recordPolls();
   const [d] = await client.getAllDoors();
@@ -288,6 +273,48 @@ test("polls fast right after a command, before Genie reports movement", async ()
   assert.equal(scheduled.at(-1), 1000);
   await client.poll(); // Genie still says CLOSED
   assert.equal(scheduled.at(-1), 3000);
+});
+
+test("stops fast polling as soon as the door reaches the commanded position", async () => {
+  const { scheduled } = recordPolls();
+  const [d] = await client.getAllDoors();
+  await client.setDoorStatus(d, 1); // OPEN
+  api.doorStatus = 2; // OPENING
+  await client.poll();
+  assert.equal(scheduled.at(-1), 3000);
+  api.doorStatus = 1; // OPEN
+  await client.poll();
+  assert.equal(scheduled.at(-1), 15000);
+});
+
+test("stops fast polling when Genie reports a timeout", async () => {
+  const { scheduled } = recordPolls();
+  const [d] = await client.getAllDoors();
+  await client.setDoorStatus(d, 1);
+  api.doorStatus = 3; // TIMEOUT_OPENING
+  await client.poll();
+  assert.equal(scheduled.at(-1), 15000);
+});
+
+test("a leftover timeout from the other direction does not end fast polling", async () => {
+  const { scheduled } = recordPolls();
+  api.doorStatus = 3; // TIMEOUT_OPENING from an earlier open
+  const [d] = await client.getAllDoors();
+  await client.setDoorStatus(d, 0); // CLOSE; Genie hasn't caught up yet
+  await client.poll();
+  assert.equal(scheduled.at(-1), 3000);
+});
+
+test("stops fast polling when a command the door never acts on times out", async (t) => {
+  const { scheduled } = recordPolls();
+  const [d] = await client.getAllDoors();
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  await client.setDoorStatus(d, 1); // Genie keeps saying CLOSED
+  await client.poll();
+  assert.equal(scheduled.at(-1), 3000);
+  t.mock.timers.tick(60 * 1000);
+  await client.poll();
+  assert.equal(scheduled.at(-1), 15000);
 });
 
 test("backs off while Genie is unreachable and recovers", async () => {

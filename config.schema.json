@@ -29,20 +29,6 @@
         "minimum": 0,
         "maximum": 100
       },
-      "doorStatusStationaryCacheTtl": {
-        "title": "Stationary door status cache TTL (in seconds). Used when the door is in a stationary state.",
-        "type": "integer",
-        "default": 15,
-        "minimum": 5,
-        "maximum": 60
-      },
-      "doorStatusTransitioningCacheTtl": {
-        "title": "Status refresh interval while a door is moving or right after a command (in seconds)",
-        "type": "integer",
-        "default": 3,
-        "minimum": 1,
-        "maximum": 30
-      },
       "doorStatusPollInterval": {
         "title": "Door Status Poll Interval (in milliseconds)",
         "type": "integer",
@@ -89,8 +75,6 @@
       "expanded": false,
       "items": [
         "batteryLowLevel",
-        "doorStatusStationaryCacheTtl",
-        "doorStatusTransitioningCacheTtl",
         "doorStatusPollInterval",
         "logApiResponses",
         "logDoorStateChanges",
