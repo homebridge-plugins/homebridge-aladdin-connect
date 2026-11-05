@@ -154,10 +154,13 @@ export class AladdinConnect {
   private cognitoUsername: string | null = null;
 
   private pollTimer: NodeJS.Timeout | null = null;
-  // Commands still under way, by door: the position asked for and when to give up on it.
+  // Commands still under way, by door: the position asked for, when to give up on it, and whether
+  // the door has shown anything other than this command's timeout status since it was sent.
+  // The last status Genie reported for each door.
+  private readonly lastStatus = new Map<string, AladdinDoorStatus>();
   private readonly pendingCommands = new Map<
     string,
-    { target: AladdinDesiredDoorStatus; deadline: number }
+    { target: AladdinDesiredDoorStatus; deadline: number; leftTimeout: boolean }
   >();
 
   private consecutivePollFailures = 0;
@@ -276,16 +279,21 @@ export class AladdinConnect {
    */
   private settlePendingCommands(doors: AladdinDoor[]): void {
     const now = Date.now();
-    for (const [key, { target, deadline }] of this.pendingCommands) {
+    for (const [key, pending] of this.pendingCommands) {
       const door = doors.find((d) => AladdinConnect.doorKey(d) === key);
-      // Only the timeout for this command's direction counts; a door can still show a timeout
-      // from an earlier attempt in the other direction when the new command is sent.
-      const finished =
-        target === AladdinDesiredDoorStatus.OPEN
-          ? [AladdinDoorStatus.OPEN, AladdinDoorStatus.TIMEOUT_OPENING]
-          : [AladdinDoorStatus.CLOSED, AladdinDoorStatus.TIMEOUT_CLOSING];
-      const arrived = door !== undefined && finished.includes(door.status);
-      if (arrived || now >= deadline) {
+      const open = pending.target === AladdinDesiredDoorStatus.OPEN;
+      const position = open ? AladdinDoorStatus.OPEN : AladdinDoorStatus.CLOSED;
+      const timeout = open ? AladdinDoorStatus.TIMEOUT_OPENING : AladdinDoorStatus.TIMEOUT_CLOSING;
+      if (door !== undefined && door.status !== timeout) {
+        pending.leftTimeout = true;
+      }
+      // Only the timeout for this command's direction counts, and only once the door has left it:
+      // a retry after a timeout is sent while the door still shows that timeout, and a door can
+      // still show a timeout from an earlier attempt in the other direction.
+      const arrived =
+        door !== undefined &&
+        (door.status === position || (door.status === timeout && pending.leftTimeout));
+      if (arrived || now >= pending.deadline) {
         this.pendingCommands.delete(key);
       }
     }
@@ -303,7 +311,7 @@ export class AladdinConnect {
         this.log.debug('[API] Configuration response: %s', JSON.stringify(response.data));
       }
 
-      return response.data.devices.flatMap((device) =>
+      const doors = response.data.devices.flatMap((device) =>
         device.doors.map((door) => {
           const name = door?.name || 'Garage Door';
           const status = door?.status ?? AladdinDoorStatus.UNKNOWN;
@@ -328,6 +336,8 @@ export class AladdinConnect {
           };
         }),
       );
+      doors.forEach((door) => this.lastStatus.set(AladdinConnect.doorKey(door), door.status));
+      return doors;
     });
   }
 
@@ -365,7 +375,17 @@ export class AladdinConnect {
     // Poll fast, starting almost immediately, until the door gets there, so HomeKit sees it start
     // moving within a second or two instead of at the next regular poll.
     const deadline = Date.now() + COMMAND_TIMEOUT_MS;
-    this.pendingCommands.set(AladdinConnect.doorKey(door), { target: desiredStatus, deadline });
+    const key = AladdinConnect.doorKey(door);
+    const timeout =
+      desiredStatus === AladdinDesiredDoorStatus.OPEN
+        ? AladdinDoorStatus.TIMEOUT_OPENING
+        : AladdinDoorStatus.TIMEOUT_CLOSING;
+    this.pendingCommands.set(key, {
+      target: desiredStatus,
+      deadline,
+      // A retry after a timeout starts in that timeout; anything else has already left it.
+      leftTimeout: this.lastStatus.get(key) !== timeout,
+    });
     this.schedulePoll(AladdinConnect.COMMAND_FIRST_POLL_DELAY_MS);
     return deadline;
   }

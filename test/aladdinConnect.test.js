@@ -296,6 +296,20 @@ test("stops fast polling when Genie reports a timeout", async () => {
   assert.equal(scheduled.at(-1), 15000);
 });
 
+test("a retry after a timeout keeps fast polling until the door moves or times out again", async () => {
+  const { scheduled } = recordPolls();
+  api.doorStatus = 3; // TIMEOUT_OPENING from the failed first attempt
+  const [d] = await client.getAllDoors();
+  await client.setDoorStatus(d, 1); // OPEN again
+  await client.poll(); // Genie still shows the old timeout
+  assert.equal(scheduled.at(-1), 3000);
+  api.doorStatus = 2; // OPENING
+  await client.poll();
+  api.doorStatus = 3; // timed out again
+  await client.poll();
+  assert.equal(scheduled.at(-1), 15000);
+});
+
 test("a leftover timeout from the other direction does not end fast polling", async () => {
   const { scheduled } = recordPolls();
   api.doorStatus = 3; // TIMEOUT_OPENING from an earlier open

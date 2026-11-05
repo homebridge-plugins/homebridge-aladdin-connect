@@ -107,6 +107,20 @@ test("the target is let go at the client's deadline, when fast polling stops", a
   assert.equal(target(), Target.CLOSED);
 });
 
+test("a command can be retried after the door times out", async () => {
+  report(S.CLOSED);
+  await tapTarget(Target.OPEN);
+  report(3); // TIMEOUT_OPENING: Genie gave up, so the target already reads OPEN
+  await tapTarget(Target.OPEN);
+  assert.equal(genie.commands.length, 2);
+});
+
+test("a repeated command is not sent while the door is already there", async () => {
+  report(S.OPEN);
+  await tapTarget(Target.OPEN);
+  assert.equal(genie.commands.length, 0);
+});
+
 test("a failed command puts the toggle back and reports an error to HomeKit", async () => {
   report(S.CLOSED);
   genie.fail = true;

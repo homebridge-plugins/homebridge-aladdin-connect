@@ -237,7 +237,13 @@ export class GenieAladdinConnectGarageDoorAccessory {
 
   private async setTargetDoorState(value: CharacteristicValue): Promise<void> {
     const desiredStatus = this.convertTargetStateValueToDesiredStatus(value);
-    if (desiredStatus === this.desiredStatus && this.pendingTarget === null) {
+    // A door that timed out still reports the target it failed to reach, so a retry would look
+    // like a repeat of the current target; send it anyway.
+    const timedOut = [
+      AladdinDoorStatus.TIMEOUT_OPENING,
+      AladdinDoorStatus.TIMEOUT_CLOSING,
+    ].includes(this.currentStatus);
+    if (desiredStatus === this.desiredStatus && this.pendingTarget === null && !timedOut) {
       this.log.debug(
         '[%s] Set Characteristic TargetDoorState -> %s, already set TargetDoorState -> %s. Cancelling.',
         this.door.name,
