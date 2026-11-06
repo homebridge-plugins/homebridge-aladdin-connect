@@ -154,13 +154,10 @@ export class AladdinConnect {
   private cognitoUsername: string | null = null;
 
   private pollTimer: NodeJS.Timeout | null = null;
-  // Commands still under way, by door: the position asked for, when to give up on it, and whether
-  // the door has shown anything other than this command's timeout status since it was sent.
-  // The last status Genie reported for each door.
-  private readonly lastStatus = new Map<string, AladdinDoorStatus>();
+  // Commands still under way, by door: the position asked for and when to give up on it.
   private readonly pendingCommands = new Map<
     string,
-    { target: AladdinDesiredDoorStatus; deadline: number; leftTimeout: boolean }
+    { target: AladdinDesiredDoorStatus; deadline: number }
   >();
 
   private consecutivePollFailures = 0;
@@ -274,26 +271,19 @@ export class AladdinConnect {
   }
 
   /**
-   * Stop fast polling for commands that have finished: the door reached the commanded position or
-   * Genie reported a timeout, or the command ran past COMMAND_TIMEOUT_MS.
+   * Stop fast polling for commands that have finished: the door reached the commanded position,
+   * or the command ran past COMMAND_TIMEOUT_MS. A door that fails to move (e.g. Genie reports a
+   * TIMEOUT_* status) keeps fast polling until the deadline.
    */
   private settlePendingCommands(doors: AladdinDoor[]): void {
     const now = Date.now();
     for (const [key, pending] of this.pendingCommands) {
       const door = doors.find((d) => AladdinConnect.doorKey(d) === key);
-      const open = pending.target === AladdinDesiredDoorStatus.OPEN;
-      const position = open ? AladdinDoorStatus.OPEN : AladdinDoorStatus.CLOSED;
-      const timeout = open ? AladdinDoorStatus.TIMEOUT_OPENING : AladdinDoorStatus.TIMEOUT_CLOSING;
-      if (door !== undefined && door.status !== timeout) {
-        pending.leftTimeout = true;
-      }
-      // Only the timeout for this command's direction counts, and only once the door has left it:
-      // a retry after a timeout is sent while the door still shows that timeout, and a door can
-      // still show a timeout from an earlier attempt in the other direction.
-      const arrived =
-        door !== undefined &&
-        (door.status === position || (door.status === timeout && pending.leftTimeout));
-      if (arrived || now >= pending.deadline) {
+      const position =
+        pending.target === AladdinDesiredDoorStatus.OPEN
+          ? AladdinDoorStatus.OPEN
+          : AladdinDoorStatus.CLOSED;
+      if (door?.status === position || now >= pending.deadline) {
         this.pendingCommands.delete(key);
       }
     }
@@ -336,7 +326,6 @@ export class AladdinConnect {
           };
         }),
       );
-      doors.forEach((door) => this.lastStatus.set(AladdinConnect.doorKey(door), door.status));
       return doors;
     });
   }
@@ -375,17 +364,7 @@ export class AladdinConnect {
     // Poll fast, starting almost immediately, until the door gets there, so HomeKit sees it start
     // moving within a second or two instead of at the next regular poll.
     const deadline = Date.now() + COMMAND_TIMEOUT_MS;
-    const key = AladdinConnect.doorKey(door);
-    const timeout =
-      desiredStatus === AladdinDesiredDoorStatus.OPEN
-        ? AladdinDoorStatus.TIMEOUT_OPENING
-        : AladdinDoorStatus.TIMEOUT_CLOSING;
-    this.pendingCommands.set(key, {
-      target: desiredStatus,
-      deadline,
-      // A retry after a timeout starts in that timeout; anything else has already left it.
-      leftTimeout: this.lastStatus.get(key) !== timeout,
-    });
+    this.pendingCommands.set(AladdinConnect.doorKey(door), { target: desiredStatus, deadline });
     this.schedulePoll(AladdinConnect.COMMAND_FIRST_POLL_DELAY_MS);
     return deadline;
   }
@@ -427,7 +406,8 @@ export class AladdinConnect {
             throw error;
           }
           // Expected when the refresh token expires (every 30 days by default); if it shows up
-          // every hour, refreshes are being rejected and every renewal costs a password login.
+          // every day (Genie access tokens last 24 h), refreshes are being rejected and every
+          // renewal costs a password login.
           this.log.warn(
             '[API] Refresh token was rejected (%s); logging in with the password',
             AladdinConnect.describeError(error),

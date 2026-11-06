@@ -67,7 +67,10 @@ function fakeApi() {
         return reply(
           api.refreshStatus,
           api.refreshStatus === 400
-            ? { __type: "NotAuthorizedException", message: "Invalid Refresh Token" }
+            ? {
+                __type: "NotAuthorizedException",
+                message: "Invalid Refresh Token",
+              }
             : {},
         );
       }
@@ -287,36 +290,29 @@ test("stops fast polling as soon as the door reaches the commanded position", as
   assert.equal(scheduled.at(-1), 15000);
 });
 
-test("stops fast polling when Genie reports a timeout", async () => {
+test("a door that times out keeps fast polling until the deadline", async (t) => {
   const { scheduled } = recordPolls();
   const [d] = await client.getAllDoors();
-  await client.setDoorStatus(d, 1);
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  await client.setDoorStatus(d, 1); // OPEN
   api.doorStatus = 3; // TIMEOUT_OPENING
+  await client.poll();
+  assert.equal(scheduled.at(-1), 3000);
+  t.mock.timers.tick(60 * 1000);
   await client.poll();
   assert.equal(scheduled.at(-1), 15000);
 });
 
-test("a retry after a timeout keeps fast polling until the door moves or times out again", async () => {
+test("a retry after a timeout stops fast polling once the door arrives", async () => {
   const { scheduled } = recordPolls();
   api.doorStatus = 3; // TIMEOUT_OPENING from the failed first attempt
   const [d] = await client.getAllDoors();
   await client.setDoorStatus(d, 1); // OPEN again
   await client.poll(); // Genie still shows the old timeout
   assert.equal(scheduled.at(-1), 3000);
-  api.doorStatus = 2; // OPENING
-  await client.poll();
-  api.doorStatus = 3; // timed out again
+  api.doorStatus = 1; // OPEN
   await client.poll();
   assert.equal(scheduled.at(-1), 15000);
-});
-
-test("a leftover timeout from the other direction does not end fast polling", async () => {
-  const { scheduled } = recordPolls();
-  api.doorStatus = 3; // TIMEOUT_OPENING from an earlier open
-  const [d] = await client.getAllDoors();
-  await client.setDoorStatus(d, 0); // CLOSE; Genie hasn't caught up yet
-  await client.poll();
-  assert.equal(scheduled.at(-1), 3000);
 });
 
 test("stops fast polling when a command the door never acts on times out", async (t) => {
