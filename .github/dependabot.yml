@@ -1,17 +1,24 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://help.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
-
+# Security updates only: open-pull-requests-limit: 0 turns version updates off,
+# and each ecosystem's security updates are grouped into a single pull request.
 version: 2
 updates:
-  - package-ecosystem: 'npm' # See documentation for possible values
-    directory: '/' # Location of package manifests
-    target-branch: 'beta-*.*.*'
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
       interval: 'daily'
-  - package-ecosystem: 'github-actions' # See documentation for possible values
-    directory: '/' # Location of package manifests
-    target-branch: 'beta-*.*.*'
+    open-pull-requests-limit: 0
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - '*'
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
       interval: 'daily'
+    open-pull-requests-limit: 0
+    groups:
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - '*'
