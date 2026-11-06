@@ -1,3 +1,13 @@
+## [4.4.7](https://github.com/homebridge-plugins/homebridge-aladdin-connect/compare/v4.4.6...v4.4.7) (2026-11-06)
+
+
+### Bug Fixes
+
+* poll fresh status instead of the door cache; make token-reuse test real ([f3e9dd3](https://github.com/homebridge-plugins/homebridge-aladdin-connect/commit/f3e9dd398dbefc61b5fa427469e98c3c5402a7f7))
+* use millisecond cache TTLs, invalidate status after commands, stop retrying 4xx ([1428f7a](https://github.com/homebridge-plugins/homebridge-aladdin-connect/commit/1428f7a8741b931883a68db8b1a0a5ee01b9de3e))
+
+
+
 ## [4.3.4](https://github.com/homebridge-plugins/homebridge-aladdin-connect/compare/v4.3.3...v4.3.4) (2026-09-03)
 
 
