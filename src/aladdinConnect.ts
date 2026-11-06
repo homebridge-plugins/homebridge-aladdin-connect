@@ -142,6 +142,7 @@ export class AladdinConnect {
     '7bokto0ep96055k42fnrmuth84k7jdcjablestb7j53o8lp63v5';
 
   private static readonly DOOR_STATUS_LOCK = 'DOOR_STATUS';
+  private static readonly ALL_DOORS_CACHE_KEY = 'getAllDoors';
 
   private readonly lock = new AsyncLock();
   private readonly cache: Cache;
@@ -163,7 +164,12 @@ export class AladdinConnect {
     });
     axiosRetry(this.session, {
       retries: 3,
-      retryCondition: (error) => !error.response || error.response.status >= 400,
+      // Only retry failures that might succeed on a second attempt: network errors, throttling and
+      // server errors. Retrying 4xx responses (e.g. a bad password) only multiplies failed logins
+      // and risks locking the account.
+      retryCondition: (error) =>
+        !error.response || error.response.status === 429 || error.response.status >= 500,
+      retryDelay: axiosRetry.exponentialDelay,
       shouldResetTimeout: true,
     });
   }
@@ -190,6 +196,9 @@ export class AladdinConnect {
         // Acquire the status lock before emitting any new events.
         this.log.debug('[API] Polling status for all doors');
         try {
+          // Always fetch fresh status when polling. The cache only serves other callers; if the
+          // poller used it, a poll interval at or below the cache TTL would republish stale status.
+          await this.cache.del(AladdinConnect.ALL_DOORS_CACHE_KEY);
           (await this.getAllDoors()).map((doorStatus) => {
             PubSub.publish(AladdinConnect.doorStatusTopic(doorStatus), doorStatus);
           });
@@ -214,7 +223,7 @@ export class AladdinConnect {
       AladdinConnect.DOOR_STATUS_LOCK,
       async (): Promise<AladdinDoor[]> =>
         this.cache.wrap(
-          'getAllDoors',
+          AladdinConnect.ALL_DOORS_CACHE_KEY,
           async () => {
             let response: AxiosResponse<AladdinDevicesEntity>;
             try {
@@ -263,14 +272,16 @@ export class AladdinConnect {
               }),
             );
           },
+          // cache-manager v7 TTLs are in milliseconds.
           (doors: AladdinDoor[]) =>
-            doors.some((door) =>
+            1000 *
+            (doors.some((door) =>
               [AladdinDoorStatus.CLOSING, AladdinDoorStatus.OPENING].includes(
                 door?.status ?? AladdinDoorStatus.UNKNOWN,
               ),
             )
               ? this.doorStatusTransitioningCacheTtl
-              : this.doorStatusStationaryCacheTtl,
+              : this.doorStatusStationaryCacheTtl),
         ),
     );
   }
@@ -307,7 +318,8 @@ export class AladdinConnect {
         this.log.debug('[API] Genie %s response: %s', command, JSON.stringify(response.data));
       }
 
-      await this.cache.del(AladdinConnect.doorStatusCacheKey(door));
+      // Drop the cached door list so the next poll reflects the command.
+      await this.cache.del(AladdinConnect.ALL_DOORS_CACHE_KEY);
     });
   }
 
@@ -350,7 +362,8 @@ export class AladdinConnect {
 
           return response.data.AuthenticationResult;
         },
-        ({ ExpiresIn: expiresIn }) => expiresIn - 30,
+        // ExpiresIn is in seconds; cache-manager v7 TTLs are in milliseconds.
+        ({ ExpiresIn: expiresIn }) => Math.max(0, expiresIn - 30) * 1000,
       )
     ).AccessToken;
   }
@@ -389,9 +402,5 @@ export class AladdinConnect {
 
   private static doorStatusTopic(door: AladdinDoor): string {
     return `${AladdinConnect.PUB_SUB_DOOR_STATUS_TOPIC}.${door.deviceId}.${door.index}`;
-  }
-
-  private static doorStatusCacheKey(door: AladdinDoor): string {
-    return `${door.deviceId}:${door.index}`;
   }
 }
