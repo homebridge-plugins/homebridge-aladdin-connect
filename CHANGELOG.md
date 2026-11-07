@@ -1,3 +1,18 @@
+# [4.5.0](https://github.com/homebridge-plugins/homebridge-aladdin-connect/compare/v4.4.7...v4.5.0) (2026-11-07)
+
+
+### Bug Fixes
+
+* allow retrying a command after the door times out ([5809da2](https://github.com/homebridge-plugins/homebridge-aladdin-connect/commit/5809da2da143f7b6e94d54fc3c6fbac70a4815a1))
+* let go of the HomeKit target at the same moment fast polling stops ([06319b7](https://github.com/homebridge-plugins/homebridge-aladdin-connect/commit/06319b71e5f2dbc68aa6ae6c479ef084e947b7ca))
+
+
+### Features
+
+* faster status updates, token refresh, backoff, safer state handling ([a1d3007](https://github.com/homebridge-plugins/homebridge-aladdin-connect/commit/a1d30072ebad9bcf420c4b7adb02f8339ef3ba0d))
+
+
+
 ## [4.4.7](https://github.com/homebridge-plugins/homebridge-aladdin-connect/compare/v4.4.6...v4.4.7) (2026-11-06)
 
 
